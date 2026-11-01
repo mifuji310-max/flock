@@ -1,5 +1,5 @@
 /* =====================================================================
- * FLOCK app v0.15（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.16（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
  *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作
  * ===================================================================== */
 (function () {
@@ -519,23 +519,28 @@
   }
   /* v0.15 ムクドリ：駅前広場に立って見上げる。立つ位置は固定し、群れの方へ首を振る。
    * 画角は群れ全体が入るように変える。2本指（観察モードは1本指）で向きをずらし、3秒たつと自動に戻る */
-  var VIEW_POS = new THREE.Vector3(0, FLOCK.STARLING.groundY + 1.6, 125), lookAtV = new THREE.Vector3();
+  var VIEW_POS = new THREE.Vector3(0, FLOCK.STARLING.groundY + 1.6, 85), lookAtV = new THREE.Vector3();   // v0.16: 125 m → 85 m（近くで見上げる）
   var stYaw = 0, stPitch = 0.4, stFov = 50, lastLook = -1e9, stSnap = true;
+  var cPrev = new THREE.Vector3(), cVel = new THREE.Vector3();   // v0.16: 群れの進む先を少し先回りして向く
   function clampN(x, a, b) { return x < a ? a : x > b ? b : x; }
   function updateStarCamera(dt) {
-    var c = engine.centroid, k = stSnap ? 1 : 1 - Math.exp(-dt * 0.9);
-    camTarget.x += (c[0] - camTarget.x) * k; camTarget.y += (c[1] - camTarget.y) * k; camTarget.z += (c[2] - camTarget.z) * k;
+    var c = engine.centroid, k = stSnap ? 1 : 1 - Math.exp(-dt * 2.0);
+    if (stSnap) { cPrev.fromArray(c); cVel.set(0, 0, 0); }
+    else if (dt > 0) { var kv = 1 - Math.exp(-dt * 1.5); cVel.x += ((c[0] - cPrev.x) / dt - cVel.x) * kv; cVel.y += ((c[1] - cPrev.y) / dt - cVel.y) * kv; cVel.z += ((c[2] - cPrev.z) / dt - cVel.z) * kv; cPrev.fromArray(c); }
+    var LEAD = 0.7;
+    camTarget.x += (c[0] + cVel.x * LEAD - camTarget.x) * k; camTarget.y += (c[1] + cVel.y * LEAD - camTarget.y) * k; camTarget.z += (c[2] + cVel.z * LEAD - camTarget.z) * k;
     spreadSm += (engine.spread - spreadSm) * (stSnap ? 1 : 1 - Math.exp(-dt * 0.5));
     var dx = camTarget.x - VIEW_POS.x, dy = camTarget.y - VIEW_POS.y, dz = camTarget.z - VIEW_POS.z;
     var hd = Math.hypot(dx, dz) || 1, dist = Math.hypot(hd, dy), aspect = W / H;
-    var hf = 2 * Math.atan((spreadSm * 1.8 + 6) / dist) / 0.55;   // 群れの見かけの直径が、画面の短い辺の半分強
+    var hf = 2 * Math.atan((spreadSm * 1.8 + 6) / dist) / 0.72;   // v0.16: 群れの見かけの直径が、画面の短い辺の約7割
     var vf = aspect < 1 ? 2 * Math.atan(Math.tan(hf / 2) / aspect) : hf;
-    var vDeg = clampN(clampN(vf * 180 / Math.PI, 24, 80) / zoom, 14, 95);
+    var vDeg = clampN(clampN(vf * 180 / Math.PI, aspect < 1 ? 20 : 32, 80) / zoom, 10, 95);   // 横画面は縦が狭いので、画角の下限を広めに
     // 地平線が画面の下から約2割の高さに来る向きを基本にし、群れが高いときだけ見上げる
     var halfV = vDeg * Math.PI / 360, pHor = Math.atan(0.58 * Math.tan(halfV)), elev = Math.atan2(dy, hd);
-    var tYaw = Math.atan2(-dx, -dz), tPitch = clampN(Math.max(pHor, elev - 0.55 * halfV), 0.03, 1.35);
+    var tYaw = Math.atan2(-dx, -dz), tPitch = clampN(Math.max(pHor, elev - 0.3 * halfV), 0.03, 1.35);   // v0.16: 群れは画面の中央やや上に
     if (performance.now() - lastLook > 3000) { var kb = Math.exp(-dt * 1.2); userYaw *= kb; userPitch *= kb; }
-    var kk = stSnap ? 1 : 1 - Math.exp(-dt * 1.4), dyaw = tYaw - stYaw;
+    // v0.16: 拡大しているときは、首振りをゆっくりにする（画面の中で景色が速く流れないように）
+    var kk = stSnap ? 1 : 1 - Math.exp(-dt * 2.2 / Math.sqrt(Math.max(1, zoom))), dyaw = tYaw - stYaw;
     while (dyaw > Math.PI) dyaw -= Math.PI * 2;
     while (dyaw < -Math.PI) dyaw += Math.PI * 2;
     stYaw += dyaw * kk; stPitch += (tPitch - stPitch) * kk; stFov += (vDeg - stFov) * kk;
@@ -770,7 +775,7 @@
     if (gesture === 'look' && look) {
       var dx = x - look.sx, dy = y - look.sy;
       if (!look.moved && dx * dx + dy * dy > 64) look.moved = true;
-      if (look.moved) { userYaw = look.yaw0 + dx * ORBIT_K * yawSign(); userPitch = clampPitch(look.pitch0 + dy * ORBIT_K); lastLook = performance.now(); }
+      if (look.moved) { userYaw = look.yaw0 + dx * orbitK() * yawSign(); userPitch = clampPitch(look.pitch0 + dy * orbitK()); lastLook = performance.now(); }
     } else if (gesture === 'feed') {   // なぞると帯状にまく
       if (Math.hypot(x - feedLast.x, y - feedLast.y) > 34) { feedLast.x = x; feedLast.y = y; if (made) made.food += scatterFood(x, y, 8); else scatterFood(x, y, 8); }
     } else if (gesture === 'touch') {
@@ -791,6 +796,8 @@
       }
     }
   }
+  // v0.16 ムクドリ：指を動かした分だけ景色が動く（拡大するほど回転を小さくする）
+  function orbitK() { return isStar() ? (camera.fov * Math.PI / 180) / Math.max(1, H) : ORBIT_K; }
   function yawSign() { return isStar() ? 1 : -1; }   // ムクドリは自分が向きを変える（ドラッグした方へ景色が動く）
 
   canvas.addEventListener('pointerdown', function (e) {
@@ -823,8 +830,8 @@
       zoom = isStar() ? Math.min(zoomMax(), Math.max(zoomMin(), pinch.z0 * pdist() / pinch.d0))   // ムクドリは画角を変える（広げると拡大）
         : Math.min(zoomMax(), Math.max(zoomMin(), pinch.z0 * pinch.d0 / pdist()));
       var mm = pmid();   // 2本指をそろえて動かすと視点が回る
-      userYaw = pinch.yaw0 + (mm.x - pinch.mx) * ORBIT_K * yawSign();
-      userPitch = clampPitch(pinch.pitch0 + (mm.y - pinch.my) * ORBIT_K);
+      userYaw = pinch.yaw0 + (mm.x - pinch.mx) * orbitK() * yawSign();
+      userPitch = clampPitch(pinch.pitch0 + (mm.y - pinch.my) * orbitK());
       lastLook = performance.now();
     } else moveSingle(e.clientX, e.clientY);
   });

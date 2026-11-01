@@ -1,5 +1,5 @@
 /* =====================================================================
- * FLOCK starling view v0.15（設計書 v0.5 §16） — ムクドリモードの描画（Three.js r128）
+ * FLOCK starling view v0.16（設計書 v0.5 §16）  v0.16: 観る人を近づけたので街灯を奥へ — ムクドリモードの描画（Three.js r128）
  *   夕暮れの空・駅前の街のシルエット・羽ばたく鳥・ハヤブサ
  *   座標はエンジンと同じ（1単位 = 1 m）。地面は y = groundY（−50）。観る人は地上1.6 m に立つ
  *   app.js から FLOCK.createStarlingView(opts) で作り、表示の切り替えと毎フレームの更新を呼ぶ
@@ -174,7 +174,7 @@
     })();
     group.add(wires);
 
-    var LAMPS = [[-40, 48], [-8, 50], [24, 47], [-30, 72], [10, 74], [44, 70], [70, 52]];
+    var LAMPS = [[-40, 40], [-8, 44], [24, 41], [-30, 58], [10, 60], [44, 56], [70, 44]];   // v0.16: 観る人（z = 85）に近づけたので奥へ
     var lamps = (function () {
       var g = new THREE.Group(), poleGeo = new THREE.CylinderGeometry(0.08, 0.1, 5.5, 5), poleMat = new THREE.MeshBasicMaterial({ color: 0x0a090d, fog: false });
       var glow = (function () {
