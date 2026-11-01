@@ -1,0 +1,2435 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#03101b">
+<style>html,body{margin:0}</style>
+<title>FLOCK</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!--
+  FLOCK 群れシミュレータ  プロトタイプ v0.10「TOUCH & AVOID」
+  準拠：FLOCK（仮称）群れシミュレータ 開発設計書 v0.2（2026-10-30）
+
+  更新履歴
+  v0.10 2026-10-31  ・餌やり：触れるモードに道具の切替（手／餌）を追加。タップした場所に餌をまき、なぞると帯状にまける。
+                      餌粒はぱっと広がってゆっくり沈み、近くの魚が群がって食べる。興奮は近くの仲間へ伝わり群れ全体が集まる。
+                      食べ終わると数秒かけて元の群泳に戻る。餌がなくなると「ぽつぽつ」という小さな水音
+                    ・群れの近くに触れたときの水音を、帯域を絞った「ザッ」から、低めのやわらかい「ふわっ」＋小さな泡に変更
+                    ・障害物パネルを小型化：1行（種類・個数・削除・全消去）＋選択中のみサイズと高さの1行
+  v0.9  2026-10-31  障害物を2種類に：浮き玉（網をかけたガラス玉を海底の重りからロープで係留）と岩の柱（海底から立つ）。
+                    ・操作：ドラッグで海底に沿って水平に移動、高さはスライダー（m表示）、「置く種類」で次に置くものを選ぶ
+                    ・群れは浮き玉・ロープ・柱をそれぞれの形に沿ってよける（柱は鉛直の円柱として判定）
+                    ・選択中は足元の海底に破線リング。海底を非表示にしているときも足元に砂地と影を表示
+                    ・置く高さは群れの泳いでいる高さに自動で合わせる
+  v0.8  2026-10-31  岩をリアルに：多重ノイズの凹凸と割れた平面、くぼみの陰り・斑点・上面の藻の色、
+                    なめらかな陰影、周りに小石を添える、砂への接地影、水面からの揺らめく光（岩の上面と海底）
+  v0.7  2026-10-31  ・素早いタップが無視される不具合を修正（指を一瞬で離しても最低0.15秒は刺激を与える）
+                    ・タッチ音を水滴のみに。音程は毎回ランダム、音量を約5dB下げた
+                    ・タッチ音の選択をやめ、オン／オフのスイッチに
+                    ・残響を短く（最初のタップ時の処理負荷も軽減）
+  v0.6  2026-10-31  サウンドを刷新（すべてWeb Audioで合成）。
+                    ・環境音：低いうねり＋寄せては返す水の揺らぎ＋ときどき立ちのぼる泡
+                    ・タッチ音を追加：水琴窟（既定）／水滴／なし。画面の上ほど高い音、なぞると連続して鳴る
+                    ・群れの近くに触れたときだけ、逃げる魚の水音を重ねる
+                    ・設定に「タッチ音」の選択（選ぶと試聴）と「音量」スライダーを追加
+                    ※設計書9.3「タッチ・合流に過剰な電子効果音は付けない」から、タッチ音を付ける方針へ変更
+  v0.5  2026-10-31  一時停止中に上部のボタンが楕円に潰れ、個体数表示が折り返す不具合を修正。
+                    「一時停止中」表示を上部バーから外し、画面上部中央に表示
+  v0.4  2026-10-31  尾びれを縮小（開きを体高とほぼ同じに、長さを全長の約15%に）。写真の実物に合わせた
+  v0.3  2026-10-31  実機確認のフィードバックを反映。
+                    ・背びれ・胸びれを外し、魚体を細身の紡錘形に。背の青緑・体側の青紫の光沢帯・銀・白の配色に
+                    ・新しい小集団の出現トーストを廃止（右上の「+N 接近中」のみに戻す）
+                    ・観察モード：魚をタップして色付け（5色・最大8匹、ランダムに3匹、すべて外す）
+                    ・視点回転：観察モードは1本指ドラッグ、全モードで2本指をそろえて動かす、PCは右ドラッグ
+                    ・目印（設定から出し入れ）：海底と1mマス目、岩（魚はよける）、群れが泳ぐ範囲の枠、スケールバー
+                    ・開発者表示：係数ごとの説明表示と「係数を既定値に戻す」
+  v0.2  2026-10-31  別試作（試作B）の良い点を取り込み。動き・UIの骨格はv0.1を維持。
+                    ・一時停止（ボタン／Spaceキー）。停止中も障害物の配置・移動とズームは可能
+                    ・キーボード操作（1/2/3でモード切替、Escで設定を閉じる）
+                    ・モード別のひとことヒント（数秒で消える）
+                    ・成長モードで新しい小集団の出現をトーストで通知（方向と匹数、15秒に1回まで）
+                    ・驚いた個体・急旋回した個体の体側がわずかに光る
+                    ・魚体に背びれ・胸びれを追加
+                    ・水面からの光の筋とビネット（画面周辺の減光）
+                    ・選択中の障害物に破線リングとハンドルを表示
+                    ・障害物を群れの泳ぐ範囲内に制限
+                    ・開発者表示に「遊泳速度」スライダーを追加
+                    ・尾びれ運動のシェーダで smoothstep の引数順を規格どおりに修正
+  v0.1  2026-10-30  初版。設計書16章のプロトタイプ範囲を実装。
+                    ・自律群泳（Vicsek型整列＋分離/結合＋距離別優先＋環境流＋ソフト境界）
+                    ・タッチ忌避（タップ/長押し/ドラッグ、軌跡補間、奥行き厚み、stress伝播）
+                    ・球体障害物（設置/移動/サイズ/削除/全消去、最大5個、予測回避）
+                    ・観察モード、ピンチズーム、カメラ自動追従
+                    ・開発者表示（係数調整、偏極度/最近接距離/連結成分/FPS など、シード固定）
+                    ・成長モード（12→約500匹の小集団合流）は設定から切替（既定OFF）
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Unbounded:wght@400;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* Layout: 全画面の水中シーンに、上端の細い情報帯と下端のモード切替だけを浮かべる。単一の水中テーマ（意図的にダーク固定）。 */
+:root {
+  --abyss: #03101b;
+  --deep: #082638;
+  --glass: rgba(7, 28, 43, 0.66);
+  --glass-strong: rgba(6, 24, 37, 0.9);
+  --line: rgba(150, 210, 226, 0.18);
+  --ink: #e2f0f4;
+  --mute: #87a8b6;
+  --aqua: #92e2db;
+  --aqua-ink: #04222b;
+  --warn: #f0c97c;
+  --warn-line: rgba(240, 201, 124, 0.42);
+  --vignette: rgba(1, 7, 14, 0.42);
+  --f-mark: "Unbounded", "Zen Kaku Gothic New", system-ui, sans-serif;
+  --f-ui: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 14px;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--abyss);
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: 14px;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.vignette { position: fixed; inset: 0; z-index: 1; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 48%, var(--vignette) 100%); }
+.paused-chip {
+  position: fixed; z-index: 5; left: 50%; transform: translateX(-50%);
+  top: calc(env(safe-area-inset-top, 0px) + 104px); pointer-events: none;
+  padding: 5px 11px; border-radius: 999px; border: 1px solid var(--warn-line);
+  background: var(--glass); color: var(--warn); font-size: 11px; letter-spacing: 0.08em; white-space: nowrap;
+}
+.mode-hint {
+  pointer-events: none; max-width: 100%; padding: 6px 14px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--line); color: var(--ink);
+  font-size: 12px; line-height: 1.6; text-align: center; transition: opacity .6s;
+}
+.mode-hint.fade { opacity: 0; }
+.obs-lbl { font-size: 12px; color: var(--mute); }
+.obs-kind { justify-self: start; }
+.obs-val { font-family: var(--f-num); font-size: 11px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.swatches { grid-column: 1 / -1; display: flex; gap: 10px; }
+.swatch {
+  width: 34px; height: 34px; border-radius: 50%; border: 2px solid transparent; cursor: pointer;
+  box-shadow: inset 0 0 0 2px var(--abyss);
+}
+.swatch[aria-checked="true"] { border-color: var(--ink); }
+.scalebar {
+  position: fixed; z-index: 5; right: max(16px, env(safe-area-inset-right, 0px));
+  top: calc(env(safe-area-inset-top, 0px) + 64px);
+  display: flex; align-items: center; gap: 8px; pointer-events: none;
+  font-family: var(--f-num); font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums;
+}
+.scalebar .bar { display: block; height: 6px; border: 1.5px solid var(--ink); border-top: 0; opacity: 0.75; }
+.sheet .sub-h { margin: 18px 0 0; }
+.dbg-desc { margin: 2px 0 8px; font-family: var(--f-ui); font-size: 11px; line-height: 1.6; color: var(--mute); }
+.row input.vol { flex: 0 1 150px; min-width: 0; }
+.vol-out { width: 2.2em; text-align: right; font-family: var(--f-num); font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.dbg-reset { width: 100%; margin-top: 8px; min-height: 34px; font-family: var(--f-ui); font-size: 12px; }
+button { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--aqua); outline-offset: 2px; }
+
+/* ---------- 上端の情報帯 ---------- */
+.top {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+  display: flex; align-items: center; gap: 12px;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+.mark { font-family: var(--f-mark); font-weight: 600; font-size: 15px; letter-spacing: 0.32em; color: var(--ink); opacity: 0.92; }
+.count { display: flex; align-items: baseline; gap: 4px; font-family: var(--f-num); font-variant-numeric: tabular-nums; color: var(--aqua); font-size: 15px; }
+.count small { font-family: var(--f-ui); font-size: 11px; color: var(--mute); }
+.count .arriving { font-size: 11px; color: var(--mute); margin-left: 6px; }
+.top .spacer { flex: 1; min-width: 0; }
+.top > .mark, .top > .count, .top > .icon-btn { flex: none; white-space: nowrap; }
+.icon-btn {
+  pointer-events: auto; width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center; border: 1px solid var(--line);
+  background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer;
+}
+.icon-btn svg { width: 20px; height: 20px; }
+
+/* ---------- 下端のモード切替 ---------- */
+.bottom {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+.modes {
+  pointer-events: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+  width: min(100%, 360px); padding: 4px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--line);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.modes button {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; border: 0; border-radius: 999px; background: transparent;
+  color: var(--mute); font-size: 13px; font-weight: 500; cursor: pointer; letter-spacing: 0.04em;
+  transition: background .2s, color .2s;
+}
+.modes button svg { width: 18px; height: 18px; flex: none; }
+.modes button[aria-pressed="true"] { background: var(--aqua); color: var(--aqua-ink); }
+
+/* 障害物バー（v0.10：小型化） */
+.obs-bar {
+  pointer-events: auto; width: min(100%, 360px); display: flex; flex-direction: column; gap: 4px;
+  padding: 5px 6px; border-radius: 16px; background: var(--glass); border: 1px solid var(--line);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.obs-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.obs-row .spacer { flex: 1; }
+.obs-count { font-family: var(--f-num); font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.obs-kind button, #touchTool button { display: flex; align-items: center; gap: 5px; }
+.obs-kind svg, #touchTool svg { width: 16px; height: 16px; flex: none; }
+.icon-chip {
+  width: 36px; height: 34px; flex: none; display: grid; place-items: center; cursor: pointer;
+  border-radius: 10px; border: 1px solid var(--line); background: rgba(146, 226, 219, 0.06);
+}
+.icon-chip svg { width: 18px; height: 18px; }
+.icon-chip:disabled { opacity: 0.35; cursor: default; }
+.text-chip { flex: none; min-height: 34px; padding: 0 10px; font-size: 12px; }
+.obs-sliders { gap: 14px; padding: 0 6px 3px; }
+.mini { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 11px; color: var(--mute); }
+.mini b { font-family: var(--f-num); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.mini input { width: 100%; margin: 0; }
+.tool-bar { pointer-events: auto; padding: 3px; border-radius: 12px; background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.tool-bar .seg { border: 0; padding: 0; }
+
+/* 色付けパネル */
+.obs-panel {
+  pointer-events: auto; width: min(100%, 360px);
+  display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: center;
+  padding: 12px 14px; border-radius: var(--r);
+  background: var(--glass); border: 1px solid var(--line);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.obs-head { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--mute); }
+.obs-head b { font-family: var(--f-num); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.obs-head .hint { margin-left: auto; color: var(--warn); }
+.obs-panel label { font-size: 12px; color: var(--mute); }
+.obs-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
+.chip {
+  flex: 1; min-height: 40px; border-radius: 10px; border: 1px solid var(--line);
+  background: rgba(146, 226, 219, 0.06); cursor: pointer; font-size: 13px;
+}
+.chip:disabled { opacity: 0.35; cursor: default; }
+input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
+
+/* ---------- 初回ガイド ---------- */
+.guide {
+  position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 4;
+  width: min(calc(100% - 48px), 320px); padding: 18px 20px; border-radius: var(--r);
+  background: var(--glass); border: 1px solid var(--line); text-align: center;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  pointer-events: none; line-height: 1.9; font-size: 14px;
+  transition: opacity .5s;
+}
+.guide .sub { display: block; margin-top: 6px; font-size: 11px; color: var(--mute); }
+.guide.fade { opacity: 0; }
+
+/* ---------- トースト ---------- */
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 8;
+  top: calc(env(safe-area-inset-top, 0px) + 144px);
+  max-width: calc(100% - 32px); padding: 8px 14px; border-radius: 999px;
+  background: var(--glass-strong); border: 1px solid var(--line); font-size: 12px;
+  transition: opacity .3s; pointer-events: none;
+}
+
+/* ---------- 設定シート ---------- */
+.backdrop { position: fixed; inset: 0; z-index: 9; background: rgba(1, 8, 14, 0.45); }
+.sheet {
+  position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 10;
+  width: min(100%, 440px); max-height: 82%; overflow-y: auto;
+  padding: 18px max(18px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 18px) max(18px, env(safe-area-inset-left, 0px));
+  border-radius: 20px 20px 0 0; background: var(--glass-strong);
+  border: 1px solid var(--line); border-bottom: 0;
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+.sheet h2 { margin: 0 0 4px; font-family: var(--f-mark); font-weight: 400; font-size: 13px; letter-spacing: 0.24em; color: var(--mute); }
+.row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.row:last-of-type { border-bottom: 0; }
+.row .lbl { flex: 1; min-width: 0; }
+.row .lbl small { display: block; color: var(--mute); font-size: 11px; margin-top: 2px; line-height: 1.5; }
+.switch { position: relative; width: 48px; height: 28px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch span { position: absolute; inset: 0; border-radius: 999px; background: rgba(150, 210, 226, 0.18); transition: background .2s; pointer-events: none; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); transition: transform .2s; }
+.switch input:checked + span { background: var(--aqua); }
+.switch input:checked + span::after { transform: translateX(20px); background: var(--aqua-ink); }
+.switch input:focus-visible + span { outline: 2px solid var(--aqua); outline-offset: 2px; }
+.seg { display: flex; gap: 4px; padding: 3px; border-radius: 10px; border: 1px solid var(--line); flex: none; }
+.seg button { border: 0; background: transparent; padding: 6px 10px; border-radius: 7px; font-size: 12px; color: var(--mute); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--aqua); color: var(--aqua-ink); }
+.btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 14px 0 4px; }
+.ver { margin-top: 14px; font-size: 11px; color: var(--mute); line-height: 1.7; }
+.ver b { font-family: var(--f-num); font-weight: 500; color: var(--ink); }
+
+/* ---------- 開発者表示 ---------- */
+.debug {
+  position: fixed; z-index: 6; left: max(10px, env(safe-area-inset-left, 0px));
+  top: calc(env(safe-area-inset-top, 0px) + 62px);
+  width: min(calc(100% - 20px), 260px); max-height: calc(100% - 200px); overflow-y: auto;
+  padding: 10px 12px; border-radius: 12px; background: var(--glass-strong); border: 1px solid var(--line);
+  font-family: var(--f-num); font-size: 11px; line-height: 1.55;
+}
+.debug dl { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; margin: 0; }
+.debug dt { color: var(--mute); }
+.debug dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.debug details { margin-top: 8px; }
+.debug summary { cursor: pointer; color: var(--aqua); font-family: var(--f-ui); font-size: 12px; padding: 4px 0; }
+.dbg-slider { display: grid; grid-template-columns: 64px 1fr 38px; gap: 6px; align-items: center; margin-top: 4px; }
+.dbg-slider span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.debug label.chk { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-family: var(--f-ui); font-size: 12px; }
+.seed-row { display: flex; gap: 6px; margin-top: 8px; }
+.seed-row input { flex: 1; min-width: 0; background: rgba(0,0,0,0.25); border: 1px solid var(--line); color: var(--ink); border-radius: 6px; padding: 6px; font: inherit; }
+.seed-row button { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 0 8px; cursor: pointer; font-family: var(--f-ui); font-size: 11px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .guide, .toast, .mode-hint, .modes button, .switch span, .switch span::after { transition: none; }
+}
+</style>
+
+</head>
+<body>
+<canvas id="scene" aria-label="魚群シミュレーション"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+
+<header class="top">
+  <span class="mark">FLOCK</span>
+  <span class="count" aria-live="polite"><span id="count">0</span><small>匹</small><span class="arriving" id="arriving" hidden></span></span>
+  <span class="spacer"></span>
+  <button class="icon-btn" id="btnPause" aria-label="一時停止" aria-pressed="false" title="一時停止（Space）">
+    <svg id="pauseIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6v12M15 6v12"/></svg>
+  </button>
+  <button class="icon-btn" id="btnSettings" aria-label="設定">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>
+  </button>
+</header>
+
+<div class="guide" id="guide" hidden>
+  魚は自動で泳ぎます。<br>触れると逃げます。<br>障害物も置けます。
+  <span class="sub">2本指で回転・ズーム ／ 画面に触れると閉じます</span>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<div class="paused-chip" id="pausedChip" hidden>一時停止中</div>
+
+<div class="scalebar" id="scalebar" hidden aria-label="スケールバー"><span id="scalebarLabel">1 m</span><span class="bar" id="scalebarBar"></span></div>
+
+<aside class="debug" id="debug" hidden>
+  <dl>
+    <dt>個体数</dt><dd id="dN">-</dd>
+    <dt>FPS</dt><dd id="dFps">-</dd>
+    <dt>更新 ms</dt><dd id="dSim">-</dd>
+    <dt>偏極度 P</dt><dd id="dP">-</dd>
+    <dt>最近接 平均/最小</dt><dd id="dNN">-</dd>
+    <dt>群れ半径</dt><dd id="dR">-</dd>
+    <dt>連結成分</dt><dd id="dComp">-</dd>
+    <dt>平均速度</dt><dd id="dSpd">-</dd>
+    <dt>最大 stress</dt><dd id="dStress">-</dd>
+    <dt>障害物侵入</dt><dd id="dIntr">-</dd>
+    <dt>描画比</dt><dd id="dPR">-</dd>
+    <dt>シード</dt><dd id="dSeed">-</dd>
+  </dl>
+  <details open>
+    <summary>係数</summary>
+    <label class="chk"><input type="checkbox" id="chkDesc"> 係数の説明を表示</label>
+    <div id="dbgSliders"></div>
+    <button class="chip dbg-reset" id="btnDbgReset">係数を既定値に戻す</button>
+  </details>
+  <label class="chk"><input type="checkbox" id="chkRadius"> 刺激半径・障害物の拡張半径を表示</label>
+  <div class="seed-row">
+    <input id="seedInput" inputmode="numeric" placeholder="シード" aria-label="乱数シード">
+    <button id="btnSeed">固定して再開</button>
+  </div>
+</aside>
+
+<div class="bottom">
+  <div class="mode-hint" id="hint" hidden></div>
+  <div class="tool-bar" id="touchTools">
+    <div class="seg" id="touchTool" role="group" aria-label="触れるモードの道具">
+      <button data-t="touch" aria-pressed="true" title="触れる">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M12 10V9a1.5 1.5 0 0 1 3 0v2"/><path d="M15 10.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a5 5 0 0 1-4-2l-2.6-3.6a1.5 1.5 0 0 1 2.3-1.9L9 15"/></svg>
+        <span>触れる</span>
+      </button>
+      <button data-t="feed" aria-pressed="false" title="餌をまく">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="7" cy="8" r="1.8"/><circle cx="13" cy="5.5" r="1.5"/><circle cx="17.5" cy="10" r="1.8"/><circle cx="10.5" cy="12.5" r="1.6"/><circle cx="6" cy="16" r="1.4"/><circle cx="14.5" cy="16.5" r="1.8"/><circle cx="10" cy="20" r="1.3"/></svg>
+        <span>餌</span>
+      </button>
+    </div>
+  </div>
+  <div class="obs-bar" id="obsPanel" hidden>
+    <div class="obs-row">
+      <div class="seg obs-kind" id="obsKind" role="group" aria-label="次に置く障害物の種類">
+        <button data-k="buoy" aria-pressed="true" title="浮き玉">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="8" r="5.5"/><path d="M6.5 8h11M12 2.5v11M12 13.5V21M9.5 21h5"/></svg>
+          <span>浮き玉</span>
+        </button>
+        <button data-k="pillar" aria-pressed="false" title="岩の柱">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M8 21V7.5C8 4.5 9.8 3 12 3s4 1.5 4 4.5V21M5 21h14"/></svg>
+          <span>柱</span>
+        </button>
+      </div>
+      <span class="obs-count" id="obsCount">0/5</span>
+      <span class="spacer"></span>
+      <button class="icon-chip" id="btnObsDelete" aria-label="選んだ障害物を削除" title="削除">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+      </button>
+      <button class="chip text-chip" id="btnObsClear">全消去</button>
+    </div>
+    <div class="obs-row obs-sliders" id="obsSliders" hidden>
+      <label class="mini" for="obsSize"><span>サイズ</span><input type="range" id="obsSize" min="0.5" max="2.5" step="0.05" value="1.2"></label>
+      <label class="mini" for="obsHeight"><span>高さ <b id="obsHeightVal"></b></span><input type="range" id="obsHeight" min="2" max="15" step="0.1" value="8"></label>
+    </div>
+  </div>
+  <div class="obs-panel" id="tagPanel" hidden>
+    <div class="obs-head">色付け <b id="tagCount">0/8</b><span class="hint">次に付ける色</span></div>
+    <div class="swatches" id="swatches" role="radiogroup" aria-label="次に付ける色"></div>
+    <div class="obs-actions">
+      <button class="chip" id="btnTagRandom">ランダムに3匹</button>
+      <button class="chip" id="btnTagClear">すべて外す</button>
+    </div>
+  </div>
+  <nav class="modes" aria-label="操作モード">
+    <button id="modeTouch" aria-pressed="true" title="触れる（1）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M12 10V9a1.5 1.5 0 0 1 3 0v2"/><path d="M15 10.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a5 5 0 0 1-4-2l-2.6-3.6a1.5 1.5 0 0 1 2.3-1.9L9 15"/></svg>
+      触れる
+    </button>
+    <button id="modeObstacle" aria-pressed="false" title="障害物（2）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="7"/><path d="M8.5 9.5a4.5 4.5 0 0 1 3-2.3" stroke-linecap="round"/></svg>
+      障害物
+    </button>
+    <button id="modeWatch" aria-pressed="false" title="観察（3）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>
+      観察
+    </button>
+  </nav>
+</div>
+
+<div class="backdrop" id="backdrop" hidden></div>
+<section class="sheet" id="sheet" hidden aria-label="設定">
+  <h2>SETTINGS</h2>
+  <div class="row">
+    <div class="lbl">仲間の合流（成長）<small>12匹から始まり、画面外の小さな群れが合流して約500匹まで増えます。切り替えると群れを最初からやり直します。</small></div>
+    <label class="switch"><input type="checkbox" id="optGrowth" aria-label="仲間の合流"><span></span></label>
+  </div>
+  <div class="row">
+    <div class="lbl">画質<small>自動は動作が重いときに解像度と最大個体数を下げます。</small></div>
+    <div class="seg" id="optQuality">
+      <button data-q="auto" aria-pressed="true">自動</button>
+      <button data-q="high" aria-pressed="false">高</button>
+      <button data-q="low" aria-pressed="false">省電力</button>
+    </div>
+  </div>
+  <div class="row">
+    <div class="lbl">環境音<small>水のうねりと、ときどき立ちのぼる泡の音。最初に画面へ触れたときに鳴り始めます。</small></div>
+    <label class="switch"><input type="checkbox" id="optSound" aria-label="環境音"><span></span></label>
+  </div>
+  <div class="row">
+    <div class="lbl">タッチ音<small>触れたときの水滴の音。オンにすると試聴できます。</small></div>
+    <label class="switch"><input type="checkbox" id="optTouchSfx" aria-label="タッチ音"><span></span></label>
+  </div>
+  <div class="row">
+    <label class="lbl" for="optVolume">音量</label>
+    <input type="range" id="optVolume" class="vol" min="0" max="100" step="1" value="70">
+    <span class="vol-out" id="volOut">70</span>
+  </div>
+  <div class="row">
+    <div class="lbl">開発者表示<small>係数の調整と観察指標（偏極度・最近接距離・連結成分など）。</small></div>
+    <label class="switch"><input type="checkbox" id="optDebug" aria-label="開発者表示"><span></span></label>
+  </div>
+  <h2 class="sub-h">MARKERS</h2>
+  <div class="row">
+    <div class="lbl">海底と1mマス目<small>細い線が1m、太い線が5mごと。</small></div>
+    <label class="switch"><input type="checkbox" id="optSeabed" aria-label="海底と1mマス目"><span></span></label>
+  </div>
+  <div class="row">
+    <div class="lbl">岩<small>海底に固定の岩を置きます。魚は岩をよけます。</small></div>
+    <label class="switch"><input type="checkbox" id="optRocks" aria-label="岩"><span></span></label>
+  </div>
+  <div class="row">
+    <div class="lbl">群れが泳ぐ範囲<small>幅16m × 高さ8m × 奥行14mの楕円体。外へ出ると内側へ戻ろうとします。</small></div>
+    <label class="switch"><input type="checkbox" id="optRange" aria-label="群れが泳ぐ範囲"><span></span></label>
+  </div>
+  <div class="row">
+    <div class="lbl">スケールバー<small>群れの中心の奥行きでの長さを右上に表示します。</small></div>
+    <label class="switch"><input type="checkbox" id="optScale" aria-label="スケールバー"><span></span></label>
+  </div>
+  <div class="btn-row">
+    <button class="chip" id="btnResetView">視点を戻す</button>
+    <button class="chip" id="btnGuide">ガイドを再表示</button>
+    <button class="chip" id="btnRestart">群れを最初から</button>
+    <button class="chip" id="btnClose">閉じる</button>
+  </div>
+  <p class="ver"><b>FLOCK v0.10</b> TOUCH &amp; AVOID ／ 設計書 v0.2 準拠<br>
+  v0.10（2026-10-31）餌やり（触れるモードの道具）、自然な水音、障害物パネルを小型化<br>
+  v0.9（2026-10-31）障害物を浮き玉（係留ブイ）と岩の柱に。水平移動＋高さスライダー<br>
+  v0.8（2026-10-31）岩をリアルに（凹凸・割れ面・藻・小石・接地影・揺らめく光）<br>
+  v0.7（2026-10-31）素早いタップが効かない不具合を修正、タッチ音を水滴のみ（音程ランダム・小さめ）に<br>
+  v0.6（2026-10-31）環境音を水の音に刷新、タッチ音（水琴窟・水滴）と音量を追加<br>
+  v0.5（2026-10-31）一時停止中に上部のボタンが潰れる不具合を修正<br>
+  v0.4（2026-10-31）尾びれを実物に合わせて小さく<br>
+  v0.3（2026-10-31）ひれを外し魚体を細身に・出現通知を廃止・色付け・視点回転・目印・係数の説明<br>
+  v0.2（2026-10-31）一時停止・キーボード操作・ヒント・合流通知・個体の光り・ひれ・光の筋・選択リングを追加<br>
+  v0.1（2026-10-30）初版：自律群泳・タッチ忌避・球体障害物・観察モード・開発者表示・成長モード（任意）<br>
+  個体は人工モデルで、実際の魚の生態を厳密に再現したものではありません。</p>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* =====================================================================
+ * FLOCK simulation engine  v0.5
+ *   v0.5 2026-10-31 餌やり：沈む餌粒、餌への誘引・興奮（feed）の近傍伝播・捕食
+ *   v0.4 2026-10-31 障害物の種類：浮き玉（球＋係留ロープ）と岩の柱（鉛直カプセル）。海底基準で配置
+ *   v0.3 2026-10-31 固定の目印（岩）を回避対象 landmarks として追加
+ *   v0.2 2026-10-31 合流群の出現位置・匹数を公開（到着トースト用）
+ *   v0.1 2026-10-30 初版
+ *   描画非依存。Node でも単体実行できる（検証用）。
+ *   - SpatialHashGrid   : 近傍探索
+ *   - NeighborRules     : 分離 / Vicsek型整列 / 結合（Couzin型の距離別優先）
+ *   - WanderField       : 低振幅3Dフローフィールド＋ソフト境界
+ *   - TouchRepulsion    : 指の忌避（カプセル＋奥行き厚み）＋ stress 伝播
+ *   - ObstacleAvoid     : 予測回避（相対速度・拡張半径）＋めり込み補正
+ *   - GrowthManager     : 画面外からの小集団合流
+ *   - GroupAnalyzer     : 偏極度・最近接距離・連結成分など
+ * ===================================================================== */
+(function (root) {
+  'use strict';
+
+  var ENGINE_VERSION = '0.5';
+
+  function mulberry32(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // smoothstep(e0, e1, x)。e0 > e1 も可（例: smoothstep(R, rInner, d)）
+  function smoothstep(e0, e1, x) {
+    var t = (x - e0) / (e1 - e0);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return t * t * (3 - 2 * t);
+  }
+  function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
+
+  /* ------------------------------------------------------------------ */
+  /* イワシ（先行モード）の既定パラメータ。単位はワールド単位・秒。      */
+  /* 魚体長 ≒ 0.32                                                        */
+  /* ------------------------------------------------------------------ */
+  var SARDINE = {
+    bodyLen: 0.32,
+    bodyRadius: 0.10,
+    cruise: 2.0, minSpeed: 1.1, panicSpeed: 6.2,
+    maxAccel: 4.0, panicAccel: 22,
+    maxTurn: 2.6, panicTurn: 8.0,        // rad/s
+    maxPitch: 0.62,                      // 進行方向の上下成分の上限（|dir.y|）
+    rSep: 0.60, rAli: 1.40, rCoh: 2.80,  // 分離 < 整列 < 結合
+    blindCos: -0.55,                     // 真後ろの死角（整列・結合のみ）
+    maxNeighbors: 28,
+    wInertia: 1.0,
+    wSep: 2.6, wAli: 1.6, wCoh: 0.6,
+    wTouch: 7.0, wObs: 9.0, wEnv: 0.30, wBound: 1.6, wGather: 1.0,
+    noise: 0.16,                         // Vicsek 型ノイズ
+    alarm: 3.0,                          // 近傍警戒伝達の速さ (1/s)
+    alarmGain: 0.80,                     // 1ホップあたりの伝達率
+    stressDecay: 0.85,                   // 1/s
+    speedMatch: 0.30,                    // 近傍速度への同調
+    obsMargin: 0.38, lookAhead: 1.15,    // 拡張半径の余裕 / 予測時間 (s)
+    wFood: 3.2, foodRange: 9, eatDist: 0.2, biteProb: 0.25, sinkSpeed: 0.2, feedDecay: 0.32,   // 餌やり（biteProb：届いても毎回は食べられない）
+    obsMaxSpeed: 8.0, obsRadiusRate: 2.5,
+    bounds: [16, 8, 14]                  // ソフト境界（楕円体の半径）
+  };
+
+  /* ------------------------------------------------------------------ */
+  function SpatialHashGrid(cap, cell) {
+    this.size = 4096; this.mask = 4095;
+    this.head = new Int32Array(this.size);
+    this.next = new Int32Array(cap);
+    this.setCell(cell);
+  }
+  SpatialHashGrid.prototype.setCell = function (cell) { this.cell = cell; this.inv = 1 / cell; };
+  SpatialHashGrid.prototype.key = function (ix, iy, iz) {
+    return ((ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)) & this.mask;
+  };
+  SpatialHashGrid.prototype.build = function (px, py, pz, n) {
+    this.head.fill(-1);
+    var inv = this.inv;
+    for (var i = 0; i < n; i++) {
+      var k = this.key(Math.floor(px[i] * inv), Math.floor(py[i] * inv), Math.floor(pz[i] * inv));
+      this.next[i] = this.head[k];
+      this.head[k] = i;
+    }
+  };
+  // 27セルのキー（ハッシュ衝突による重複を除去）を keys に書き込み、個数を返す
+  SpatialHashGrid.prototype.cellKeys = function (x, y, z, keys) {
+    var inv = this.inv, ix = Math.floor(x * inv), iy = Math.floor(y * inv), iz = Math.floor(z * inv), m = 0;
+    for (var a = -1; a <= 1; a++) for (var b = -1; b <= 1; b++) for (var c = -1; c <= 1; c++) {
+      var k = this.key(ix + a, iy + b, iz + c), dup = false;
+      for (var q = 0; q < m; q++) if (keys[q] === k) { dup = true; break; }
+      if (!dup) keys[m++] = k;
+    }
+    return m;
+  };
+
+  /* ------------------------------------------------------------------ */
+  function FlockEngine(opts) {
+    opts = opts || {};
+    this.cap = opts.capacity || 640;
+    this.params = Object.assign({}, SARDINE, opts.params || {});
+    var C = this.cap;
+    this.px = new Float32Array(C); this.py = new Float32Array(C); this.pz = new Float32Array(C);
+    this.vx = new Float32Array(C); this.vy = new Float32Array(C); this.vz = new Float32Array(C);
+    this.nvx = new Float32Array(C); this.nvy = new Float32Array(C); this.nvz = new Float32Array(C);
+    this.ppx = new Float32Array(C); this.ppy = new Float32Array(C); this.ppz = new Float32Array(C); // 前ステップ位置（描画補間）
+    this.stress = new Float32Array(C); this.nstress = new Float32Array(C);
+    this.feed = new Float32Array(C); this.nfeed = new Float32Array(C);   // 餌への興奮（0〜1）
+    var FC = this.FOOD_CAP = 260;
+    this.foodX = new Float32Array(FC); this.foodY = new Float32Array(FC); this.foodZ = new Float32Array(FC);
+    this.foodVX = new Float32Array(FC); this.foodVY = new Float32Array(FC); this.foodVZ = new Float32Array(FC);
+    this.foodAge = new Float32Array(FC); this.foodPh = new Float32Array(FC); this.foodEaten = new Uint8Array(FC);
+    this.foodN = 0; this.eaten = 0;
+    this.resp = new Float32Array(C);     // responseBias
+    this.speedBias = new Float32Array(C);
+    this.size = new Float32Array(C);
+    this.phase = new Float32Array(C);
+    this.flock = new Int16Array(C);      // 0 = 本体に合流済み, >0 = 接近中の小集団ID
+    this.joinT = new Float32Array(C);
+    this.iso = new Float32Array(C);
+    this.sx = new Float32Array(C); this.sy = new Float32Array(C); this.sz = new Float32Array(C); // 回避の好み側
+    this.nn = new Float32Array(C);
+    this.inside = new Uint8Array(C);
+    this.grid = new SpatialHashGrid(C, this.params.rCoh);
+    this._keys = new Int32Array(27);
+    this.obstacles = [];
+    this.landmarks = [];               // 固定の目印（岩など）。ユーザーは編集できない
+    this.repulsors = [];                 // 入力層が毎ステップ設定
+    this.viewHalf = 8;                   // 入力層が設定（合流群の出現位置に使用）
+    this.maxCount = opts.maxCount || 500;
+    this.growthEnabled = !!opts.growth;
+    this.reset(opts.seed != null ? opts.seed : (Date.now() & 0x7fffffff), opts.initial);
+  }
+
+  FlockEngine.prototype.reset = function (seed, initial) {
+    this.seed = seed >>> 0;
+    this.rng = mulberry32(this.seed);
+    this.n = 0; this.joined = 0; this.time = 0; this.steps = 0;
+    this.intrusions = 0;
+    this.growth = { t: 0, nextAt: 8, seq: 1, groups: 0, lastSize: 0, lastPos: null };
+    this.centroid = [0, 0, 0]; this.spread = 2; this.mainN = 0;
+    this.stats = { P: 0, meanNN: 0, minNN: 0, radius: 0, components: 1, maxStress: 0, meanSpeed: 0 };
+    var count = initial != null ? initial : (this.growthEnabled ? 12 : 100);
+    var r = this.rng, P = this.params;
+    var R0 = 0.55 * Math.cbrt(count) + 0.4;
+    var hx = r() * 2 - 1, hz = r() * 2 - 1, hl = Math.hypot(hx, hz) || 1; hx /= hl; hz /= hl;
+    for (var i = 0; i < count; i++) {
+      var p = this._randInBall(R0);
+      this.addFish(p[0], p[1] * 0.6, p[2],
+        (hx + (r() - 0.5) * 0.4) * P.cruise, (r() - 0.5) * 0.3, (hz + (r() - 0.5) * 0.4) * P.cruise, 0);
+    }
+    this.joined = this.n;
+    this.obstacles.length = 0;
+    this.foodN = 0; this.eaten = 0; this.feed.fill(0);
+    this.analyze();
+  };
+
+  FlockEngine.prototype._randInBall = function (R) {
+    var r = this.rng, x, y, z;
+    do { x = r() * 2 - 1; y = r() * 2 - 1; z = r() * 2 - 1; } while (x * x + y * y + z * z > 1);
+    return [x * R, y * R, z * R];
+  };
+
+  FlockEngine.prototype.addFish = function (x, y, z, vx, vy, vz, flockId) {
+    if (this.n >= this.cap) return -1;
+    var i = this.n++, r = this.rng;
+    this.px[i] = this.ppx[i] = x; this.py[i] = this.ppy[i] = y; this.pz[i] = this.ppz[i] = z;
+    this.vx[i] = vx; this.vy[i] = vy; this.vz[i] = vz;
+    this.stress[i] = 0; this.feed[i] = 0;
+    this.resp[i] = 0.75 + r() * 0.5;
+    this.speedBias[i] = 0.9 + r() * 0.2;
+    this.size[i] = 0.88 + r() * 0.24;
+    this.phase[i] = r() * Math.PI * 2;
+    this.flock[i] = flockId | 0;
+    this.joinT[i] = 0; this.iso[i] = 0; this.inside[i] = 0;
+    var s = this._randInBall(1), sl = Math.hypot(s[0], s[1], s[2]) || 1;
+    this.sx[i] = s[0] / sl; this.sy[i] = s[1] / sl; this.sz[i] = s[2] / sl;
+    return i;
+  };
+
+  /* ---------------- 障害物 ---------------- */
+  // opts: { kind: 'buoy' | 'pillar', x, z, radius, height }  height は海底からの高さ
+  //   buoy   : 浮き玉の中心が海底から height の位置。海底の重りまで細いロープ
+  //   pillar : 海底から高さ height まで立つ岩の柱（鉛直カプセルとして回避）
+  FlockEngine.prototype.addObstacle = function (opts) {
+    var ob = { id: 'ob' + (this._obSeq = (this._obSeq || 0) + 1), kind: opts.kind || 'buoy',
+      x: opts.x, y: 0, z: opts.z, tx: opts.x, ty: 0, tz: opts.z, y0: 0, y1: 0,
+      radius: opts.radius, targetRadius: opts.radius, height: opts.height, targetHeight: opts.height,
+      vx: 0, vy: 0, vz: 0, enabled: true };
+    this._shapeObstacle(ob);
+    this.obstacles.push(ob);
+    return ob;
+  };
+  FlockEngine.prototype._shapeObstacle = function (o) {
+    var floor = -this.params.bounds[1];
+    if (o.kind === 'pillar') { o.y0 = floor; o.y1 = floor + Math.max(o.radius * 0.5, o.height - o.radius * 0.3); o.y = (o.y0 + o.y1) / 2; }
+    else { o.y0 = floor; o.y = floor + o.height; o.y1 = o.y; }
+  };
+  /* ---------------- 餌（v0.5） ---------------- */
+  FlockEngine.prototype.addFood = function (x, y, z, count, spread) {
+    var r = this.rng;
+    for (var k = 0; k < count && this.foodN < this.FOOD_CAP; k++) {
+      var p = this._randInBall(spread), f = this.foodN++;
+      this.foodX[f] = x + p[0]; this.foodY[f] = y + p[1] * 0.6; this.foodZ[f] = z + p[2];
+      this.foodVX[f] = p[0] * 1.2; this.foodVY[f] = 0.15 + r() * 0.2; this.foodVZ[f] = p[2] * 1.2;   // ぱっと広がってから沈む
+      this.foodAge[f] = 0; this.foodPh[f] = r() * 6.283; this.foodEaten[f] = 0;
+    }
+  };
+  FlockEngine.prototype._updateFood = function (dt) {
+    var P = this.params, floor = -P.bounds[1] + 0.04, damp = Math.exp(-dt * 2.2), t = this.time;
+    for (var f = 0; f < this.foodN; f++) {
+      if (this.foodEaten[f] || this.foodAge[f] > 6) { this._removeFood(f); f--; continue; }
+      if (this.foodY[f] <= floor) { this.foodAge[f] += dt; continue; }   // 海底に落ちた粒はしばらくして消える
+      this.foodVX[f] *= damp; this.foodVZ[f] *= damp;
+      this.foodVY[f] += (-P.sinkSpeed - this.foodVY[f]) * Math.min(1, dt * 1.5);
+      var w = this.foodPh[f];
+      this.foodX[f] += (this.foodVX[f] + Math.sin(t * 1.3 + w) * 0.06) * dt;
+      this.foodY[f] += this.foodVY[f] * dt;
+      this.foodZ[f] += (this.foodVZ[f] + Math.cos(t * 1.1 + w * 1.7) * 0.06) * dt;
+      if (this.foodY[f] < floor) this.foodY[f] = floor;
+    }
+  };
+  FlockEngine.prototype._removeFood = function (f) {
+    var l = --this.foodN;
+    this.foodX[f] = this.foodX[l]; this.foodY[f] = this.foodY[l]; this.foodZ[f] = this.foodZ[l];
+    this.foodVX[f] = this.foodVX[l]; this.foodVY[f] = this.foodVY[l]; this.foodVZ[f] = this.foodVZ[l];
+    this.foodAge[f] = this.foodAge[l]; this.foodPh[f] = this.foodPh[l]; this.foodEaten[f] = this.foodEaten[l];
+  };
+  FlockEngine.prototype.removeObstacle = function (id) {
+    this.obstacles = this.obstacles.filter(function (o) { return o.id !== id; });
+  };
+  FlockEngine.prototype._updateObstacles = function (dt) {
+    var P = this.params;
+    for (var k = 0; k < this.obstacles.length; k++) {
+      var o = this.obstacles[k];
+      var dx = o.tx - o.x, dz = o.tz - o.z, d = Math.hypot(dx, dz);   // 水平移動のみ
+      var maxMove = P.obsMaxSpeed * dt, ox = o.x, oy = o.y, oz = o.z;
+      if (d > maxMove) { var f = maxMove / d; dx *= f; dz *= f; }
+      o.x += dx; o.z += dz;
+      var dh = o.targetHeight - o.height, mh = P.obsRadiusRate * 2 * dt;
+      o.height += clamp(dh, -mh, mh);
+      this._shapeObstacle(o);
+      var a = Math.min(1, dt * 10);
+      o.vx += ((o.x - ox) / dt - o.vx) * a;
+      o.vy += ((o.y - oy) / dt - o.vy) * a;
+      o.vz += ((o.z - oz) / dt - o.vz) * a;
+      var dr = o.targetRadius - o.radius, mr = P.obsRadiusRate * dt;
+      o.radius += clamp(dr, -mr, mr);
+    }
+  };
+
+  /* ---------------- 成長（小集団の合流） ---------------- */
+  var GROWTH_PLAN = [[0, 12], [30, 30], [90, 90], [180, 220], [270, 500]];
+  function growthTarget(t) {
+    for (var i = 1; i < GROWTH_PLAN.length; i++) {
+      var a = GROWTH_PLAN[i - 1], b = GROWTH_PLAN[i];
+      if (t <= b[0]) return a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
+    }
+    return GROWTH_PLAN[GROWTH_PLAN.length - 1][1];
+  }
+  FlockEngine.prototype._updateGrowth = function (dt) {
+    var g = this.growth, r = this.rng, P = this.params;
+    g.t += dt;
+    if (g.t < g.nextAt) return;
+    var limit = Math.min(this.maxCount, this.cap);
+    var target = Math.min(limit, growthTarget(g.t + 12));
+    var want = Math.round(target - this.n);
+    if (want < 3) { g.nextAt = g.t + 2; return; }
+    var size = clamp(want, 4, 46);
+    // 出現位置：画面外。左右（60%）または奥のフォグの中（40%）
+    var c = this.centroid, cx, cy, cz;
+    var side = r() < 0.6;
+    var dist = this.viewHalf * 1.25 + 3 + r() * 3;
+    if (side) { var s = r() < 0.5 ? -1 : 1; cx = c[0] + s * dist; cz = c[2] + (r() - 0.5) * 6; }
+    else { cx = c[0] + (r() - 0.5) * 8; cz = c[2] - dist * 1.4; }
+    cy = c[1] + (r() - 0.5) * 4;
+    // 境界の外側すぎる位置は内側へ寄せる
+    var B = P.bounds, e = Math.hypot(cx / B[0], cy / B[1], cz / B[2]);
+    if (e > 1.15) { var f = 1.15 / e; cx *= f; cy *= f; cz *= f; }
+    var dx = c[0] - cx, dy = (c[1] - cy) * 0.3, dz = c[2] - cz, dl = Math.hypot(dx, dy, dz) || 1;
+    dx /= dl; dy /= dl; dz /= dl;
+    var R0 = 0.45 * Math.cbrt(size) + 0.3, id = g.seq++;
+    for (var i = 0; i < size; i++) {
+      var p = this._randInBall(R0);
+      this.addFish(cx + p[0], cy + p[1] * 0.6, cz + p[2],
+        (dx + (r() - 0.5) * 0.3) * P.cruise, (dy + (r() - 0.5) * 0.2) * P.cruise, (dz + (r() - 0.5) * 0.3) * P.cruise, id);
+    }
+    g.groups++; g.lastSize = size; g.lastPos = [cx, cy, cz];
+    g.nextAt = g.t + 5 + r() * 5;
+  };
+
+  /* ---------------- メイン更新 ---------------- */
+  FlockEngine.prototype.step = function (dt) {
+    var P = this.params, n = this.n, rng = this.rng;
+    var px = this.px, py = this.py, pz = this.pz, vx = this.vx, vy = this.vy, vz = this.vz;
+    var nvx = this.nvx, nvy = this.nvy, nvz = this.nvz, stress = this.stress, nstress = this.nstress;
+    var flock = this.flock, grid = this.grid, keys = this._keys, head = grid.head, next = grid.next;
+    this.time += dt; this.steps++;
+
+    // 1. 入力・障害物
+    this._updateObstacles(dt);
+    // 2. 環境・成長
+    if (this.growthEnabled) this._updateGrowth(dt);
+    n = this.n;
+    this._updateFood(dt);
+    var feed = this.feed, nfeed = this.nfeed, foodN = this.foodN, foodX = this.foodX, foodY = this.foodY, foodZ = this.foodZ, foodEaten = this.foodEaten;
+    var fcx = 0, fcy = 0, fcz = 0;
+    for (var f0 = 0; f0 < foodN; f0++) { fcx += foodX[f0]; fcy += foodY[f0]; fcz += foodZ[f0]; }
+    if (foodN) { fcx /= foodN; fcy /= foodN; fcz /= foodN; }
+    this.ppx.set(px.subarray(0, n)); this.ppy.set(py.subarray(0, n)); this.ppz.set(pz.subarray(0, n));
+    // 3. 空間ハッシュ
+    if (grid.cell !== P.rCoh) grid.setCell(P.rCoh);
+    grid.build(px, py, pz, n);
+
+    var c = this.centroid, cxm = c[0], cym = c[1], czm = c[2], mainN = this.mainN;
+    var rAli2 = P.rAli * P.rAli, rCoh2 = P.rCoh * P.rCoh;
+    var t = this.time, B = P.bounds, reps = this.repulsors;
+    // 回避用の形状を展開：t=0 球、t=1 鉛直カプセル（柱・ロープ）。m は形状ごとの余裕
+    var prims = this._prims || (this._prims = []), srcs = [this.obstacles, this.landmarks], floorY = -B[1];
+    prims.length = 0;
+    for (var s0 = 0; s0 < 2; s0++) for (var k0 = 0; k0 < srcs[s0].length; k0++) {
+      var q = srcs[s0][k0];
+      if (!q.enabled) continue;
+      if (q.kind === 'pillar') prims.push({ t: 1, x: q.x, y: q.y, z: q.z, y0: q.y0, y1: q.y1, r: q.radius, m: P.obsMargin, vx: q.vx, vy: 0, vz: q.vz });
+      else {
+        prims.push({ t: 0, x: q.x, y: q.y, z: q.z, y0: 0, y1: 0, r: q.radius, m: P.obsMargin, vx: q.vx, vy: q.vy, vz: q.vz });
+        if (q.kind === 'buoy') prims.push({ t: 1, x: q.x, y: 0, z: q.z, y0: floorY, y1: q.y - q.radius, r: 0.03, m: 0.1, vx: q.vx, vy: 0, vz: q.vz });
+      }
+    }
+    var obs = prims;
+    var cosPitch = P.maxPitch;
+    var mainR = this.spread * 1.35 + 1.0;
+
+    for (var i = 0; i < n; i++) {
+      var x = px[i], y = py[i], z = pz[i];
+      var ux = vx[i], uy = vy[i], uz = vz[i];
+      var sp = Math.sqrt(ux * ux + uy * uy + uz * uz);
+      if (!(sp > 1e-5)) { ux = this.sx[i]; uy = 0; uz = this.sz[i]; sp = Math.hypot(ux, uz) || 1; ux /= sp; uz /= sp; sp = P.minSpeed; ux *= sp; uz *= sp; }
+      var fx = ux / sp, fy = uy / sp, fz = uz / sp;
+      var si = stress[i];
+      var rSepI = P.rSep * (1 + 0.35 * si), rSep2 = rSepI * rSepI;
+
+      // 4-5. 近傍・分離/整列/結合
+      var sX = 0, sY = 0, sZ = 0;
+      var aX = fx, aY = fy, aZ = fz, aN = 1;
+      var cX = 0, cY = 0, cZ = 0, cN = 0;
+      var spdSum = 0, spdN = 0, nbStress = 0, nbFeed = 0, minD2 = 1e9, cnt = 0, mainNb = false;
+      var m = grid.cellKeys(x, y, z, keys);
+      outer:
+      for (var q = 0; q < m; q++) {
+        for (var j = head[keys[q]]; j !== -1; j = next[j]) {
+          if (j === i) continue;
+          var ddx = px[j] - x, ddy = py[j] - y, ddz = pz[j] - z;
+          var d2 = ddx * ddx + ddy * ddy + ddz * ddz;
+          if (d2 > rCoh2) continue;
+          if (d2 < 1e-8) { sX += this.sx[i]; sY += this.sy[i]; sZ += this.sz[i]; continue; }
+          if (d2 < minD2) minD2 = d2;
+          var d = Math.sqrt(d2);
+          if (d2 < rSep2) {
+            var w = 1 - d / rSepI;
+            sX -= ddx / d * w; sY -= ddy / d * w; sZ -= ddz / d * w;
+          }
+          if (flock[j] === 0) mainNb = true;
+          var cosA = (ddx * fx + ddy * fy + ddz * fz) / d;
+          if (cosA < P.blindCos) continue;
+          if (d2 < rAli2) {
+            var vjx = vx[j], vjy = vy[j], vjz = vz[j], vjs = Math.sqrt(vjx * vjx + vjy * vjy + vjz * vjz);
+            if (vjs > 1e-5) { aX += vjx / vjs; aY += vjy / vjs; aZ += vjz / vjs; aN++; spdSum += vjs; spdN++; }
+            if (stress[j] > nbStress) nbStress = stress[j];
+            if (feed[j] > nbFeed) nbFeed = feed[j];
+          }
+          cX += ddx; cY += ddy; cZ += ddz; cN++;
+          if (++cnt >= P.maxNeighbors) break outer;
+        }
+      }
+      this.nn[i] = minD2 < 1e9 ? Math.sqrt(minD2) : -1;
+
+      var sepMag = Math.sqrt(sX * sX + sY * sY + sZ * sZ);
+      var kSep = sepMag > 1 ? 1 : sepMag;
+
+      // Vicsek型整列：局所平均方向＋ノイズ。平均ベクトルが短い（向きが割れている）ときは採用しない
+      var Ax = fx, Ay = fy, Az = fz;
+      var order = Math.sqrt(aX * aX + aY * aY + aZ * aZ) / aN;
+      if (aN === 1 || order > 0.12) {
+        var nz = P.noise * 2;
+        var mx = aX / aN + (rng() - 0.5) * nz, my = aY / aN + (rng() - 0.5) * nz * 0.5, mz = aZ / aN + (rng() - 0.5) * nz;
+        var ml = Math.sqrt(mx * mx + my * my + mz * mz);
+        if (ml > 1e-4) { Ax = mx / ml; Ay = my / ml; Az = mz / ml; }
+      }
+
+      // 結合
+      var Cx = 0, Cy = 0, Cz = 0;
+      if (cN > 0) {
+        var gx = cX / cN, gy = cY / cN, gz = cZ / cN, gl = Math.sqrt(gx * gx + gy * gy + gz * gz);
+        if (gl > 1e-5) { var ramp = gl / (P.rCoh * 0.5); if (ramp > 1) ramp = 1; Cx = gx / gl * ramp; Cy = gy / gl * ramp; Cz = gz / gl * ramp; }
+        this.iso[i] = 0;
+      } else this.iso[i] += dt;
+
+      // 接近中の小集団・孤立個体の弱い再合流補助
+      var Gx = 0, Gy = 0, Gz = 0;
+      if (mainN > 0 && (flock[i] !== 0 || this.iso[i] > 1.5)) {
+        var hx = cxm - x, hy = (cym - y) * 0.5, hz = czm - z, hl = Math.sqrt(hx * hx + hy * hy + hz * hz);
+        if (hl > 1e-3) {
+          var gw = flock[i] !== 0 ? 0.9 : 0.45 * Math.min(1, this.iso[i] - 1.5);
+          Gx = hx / hl * gw; Gy = hy / hl * gw; Gz = hz / hl * gw;
+        }
+        if (flock[i] !== 0) {
+          var inMain = mainNb || hl < mainR * 0.6;
+          this.joinT[i] = inMain ? this.joinT[i] + dt : Math.max(0, this.joinT[i] - dt * 0.5);
+        }
+      }
+
+      // 6a. 指への忌避（カプセル状、奥行き方向は別の厚み）
+      var Tx = 0, Ty = 0, Tz = 0, tU = 0;
+      for (var r = 0; r < reps.length; r++) {
+        var rp = reps[r];
+        if (rp.s < 0.002) continue;
+        var abx = rp.bx - rp.ax, aby = rp.by - rp.ay, abz = rp.bz - rp.az;
+        var ab2 = abx * abx + aby * aby + abz * abz, tt = 0;
+        if (ab2 > 1e-8) { tt = ((x - rp.ax) * abx + (y - rp.ay) * aby + (z - rp.az) * abz) / ab2; tt = tt < 0 ? 0 : tt > 1 ? 1 : tt; }
+        var dqx = x - (rp.ax + abx * tt), dqy = y - (rp.ay + aby * tt), dqz = z - (rp.az + abz * tt);
+        var dzz = dqx * rp.fx + dqy * rp.fy + dqz * rp.fz;
+        var lx = dqx - dzz * rp.fx, ly = dqy - dzz * rp.fy, lz = dqz - dzz * rp.fz;
+        var dEff2 = lx * lx + ly * ly + lz * lz + (dzz * rp.R / rp.depth) * (dzz * rp.R / rp.depth);
+        if (dEff2 >= rp.R * rp.R) continue;
+        var str = smoothstep(rp.R, rp.R * 0.35, Math.sqrt(dEff2)) * rp.s;
+        var ex = lx + dzz * rp.fx * 0.5, ey = ly + dzz * rp.fy * 0.5, ez = lz + dzz * rp.fz * 0.5;
+        var el = Math.sqrt(ex * ex + ey * ey + ez * ez);
+        if (el < 1e-4) {      // 中心で距離ゼロ → 進行方向と視線の外積で横へ
+          ex = fy * rp.fz - fz * rp.fy; ey = fz * rp.fx - fx * rp.fz; ez = fx * rp.fy - fy * rp.fx;
+          el = Math.sqrt(ex * ex + ey * ey + ez * ez);
+          if (el < 1e-4) { ex = this.sx[i]; ey = this.sy[i]; ez = this.sz[i]; el = 1; }
+        }
+        Tx += ex / el * str; Ty += ey / el * str; Tz += ez / el * str;
+        if (str > tU) tU = str;
+      }
+
+      // 6b. 障害物の予測回避
+      var Ox = 0, Oy = 0, Oz = 0, oU = 0;
+      for (var k = 0; k < obs.length; k++) {
+        var o = obs[k];
+        var cy0 = o.t === 1 ? (y < o.y0 ? o.y0 : y > o.y1 ? o.y1 : y) : o.y;   // 柱・ロープは軸上の最も近い点
+        var Re = o.r + o.m + P.bodyRadius;
+        var ocx = o.x - x, ocy = cy0 - y, ocz = o.z - z;
+        var od = Math.sqrt(ocx * ocx + ocy * ocy + ocz * ocz);
+        var reach = Re + sp * P.lookAhead + 1.0;
+        if (od > reach) continue;
+        // 近接：最短方向へ外向き
+        var near = Re + 0.45;
+        if (od < near) {
+          var u = (near - od) / (near - o.r);
+          if (u > 1) u = 1;
+          if (od > 1e-5) { Ox -= ocx / od * u * 1.4; Oy -= ocy / od * u * 1.4; Oz -= ocz / od * u * 1.4; }
+          else { Ox += this.sx[i]; Oy += this.sy[i]; Oz += this.sz[i]; }
+          if (u > oU) oU = u;
+        }
+        // 予測：相対速度での進路と球の距離
+        var rvx = ux - o.vx, rvy = uy - o.vy, rvz = uz - o.vz, rs = Math.sqrt(rvx * rvx + rvy * rvy + rvz * rvz);
+        if (rs < 1e-4) continue;
+        rvx /= rs; rvy /= rs; rvz /= rs;
+        var tp = ocx * rvx + ocy * rvy + ocz * rvz;
+        var L = rs * P.lookAhead + Re;
+        if (tp <= 0 || tp > L + Re) continue;
+        var latx = rvx * tp - ocx, laty = rvy * tp - ocy, latz = rvz * tp - ocz;
+        var ld = Math.sqrt(latx * latx + laty * laty + latz * latz);
+        if (ld >= Re) continue;
+        if (ld < 1e-3) { // 真正面：個体ごとの好み側（進行方向に垂直化）
+          var dp = this.sx[i] * rvx + this.sy[i] * rvy + this.sz[i] * rvz;
+          latx = this.sx[i] - rvx * dp; laty = this.sy[i] - rvy * dp; latz = this.sz[i] - rvz * dp;
+          ld = Math.sqrt(latx * latx + laty * laty + latz * latz) || 1;
+        }
+        var urg = (1 - ld / Re) * 0.5 + (1 - clamp((tp - Re) / L, 0, 1)) * 0.5;
+        // 横へ（側方の余地が少なければ上下成分も含めて）外周を回る
+        Ox += latx / ld * urg; Oy += laty / ld * urg; Oz += latz / ld * urg;
+        if (urg > oU) oU = urg;
+      }
+
+      // 6c. 環境流（低振幅・時間変化する3Dフローフィールド）
+      var Ex = 0.5 * (Math.sin(0.21 * y + 0.13 * t + 1.3) + Math.sin(0.17 * z - 0.071 * t));
+      var Ey = 0.2 * (Math.sin(0.19 * x + 0.11 * t + 2.1) + Math.sin(0.23 * z + 0.053 * t));
+      var Ez = 0.5 * (Math.sin(0.18 * x - 0.093 * t + 0.4) + Math.sin(0.15 * y + 0.12 * t + 0.7));
+
+      // 6d. ソフト境界（楕円体。近づくほど内向き）
+      var Bx = 0, By = 0, Bz = 0;
+      var qx = x / B[0], qy = y / B[1], qz = z / B[2], e = Math.sqrt(qx * qx + qy * qy + qz * qz);
+      if (e > 0.7) {
+        var bx = -x / (B[0] * B[0]), by = -y / (B[1] * B[1]), bz = -z / (B[2] * B[2]), bl = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
+        var bs = smoothstep(0.7, 1.25, e);
+        Bx = bx / bl * bs; By = by / bl * bs; Bz = bz / bl * bs;
+      }
+
+      // 6e. 餌：近くの餌粒へ向かう。興奮（feed）は近傍へ伝わり、遠くの仲間も餌の方へ集まる
+      var Fx = 0, Fy = 0, Fz = 0, fe = feed[i], feT = nbFeed * 0.8;
+      if (foodN > 0) {
+        var bestF = P.foodRange * P.foodRange, bj = -1;
+        for (var f = 0; f < foodN; f++) {
+          if (foodEaten[f]) continue;
+          var qx = foodX[f] - x, qy = foodY[f] - y, qz = foodZ[f] - z, q2 = qx * qx + qy * qy + qz * qz;
+          if (q2 < bestF) { bestF = q2; bj = f; }
+        }
+        if (bj >= 0) {
+          var fd = Math.sqrt(bestF) || 1e-4;
+          Fx = (foodX[bj] - x) / fd; Fy = (foodY[bj] - y) / fd; Fz = (foodZ[bj] - z) / fd;
+          var feNear = 0.65 + 0.35 * (1 - fd / P.foodRange);
+          if (feNear > feT) feT = feNear;
+          if (fd < P.eatDist && rng() < P.biteProb) { foodEaten[bj] = 1; this.eaten++; fe = 1; }
+        } else if (fe > 0.15) {
+          var gx = fcx - x, gy = fcy - y, gz = fcz - z, gl = Math.sqrt(gx * gx + gy * gy + gz * gz) || 1;
+          Fx = gx / gl * 0.6; Fy = gy / gl * 0.6; Fz = gz / gl * 0.6;
+        }
+      }
+      if (feT > fe) fe += (feT - fe) * Math.min(1, dt * 3); else fe -= fe * P.feedDecay * dt;
+      nfeed[i] = fe < 0 ? 0 : fe > 1 ? 1 : fe;
+
+      // 合成（Couzin型：分離・回避が強いときは整列/結合を弱める）
+      var urgAll = tU > oU ? tU : oU;
+      var calm = 1 - 0.75 * urgAll;
+      var wA = P.wAli * (1 - 0.6 * kSep) * calm * (1 + 0.6 * si) * (1 - 0.65 * fe);   // 餌に興奮すると隊列が崩れる
+      var wC = P.wCoh * (1 - 0.85 * kSep) * calm * (1 - 0.5 * si) * (1 - 0.6 * fe);
+      var wE = P.wEnv * (1 - urgAll);
+      var Dx = P.wInertia * fx + P.wSep * (1 + si) * sX + wA * Ax + wC * Cx + P.wTouch * Tx + P.wObs * Ox + wE * Ex + P.wBound * Bx + P.wGather * Gx;
+      var Dy = P.wInertia * fy + P.wSep * (1 + si) * sY + wA * Ay + wC * Cy + P.wTouch * Ty + P.wObs * Oy + wE * Ey + P.wBound * By + P.wGather * Gy;
+      var Dz = P.wInertia * fz + P.wSep * (1 + si) * sZ + wA * Az + wC * Cz + P.wTouch * Tz + P.wObs * Oz + wE * Ez + P.wBound * Bz + P.wGather * Gz;
+      if (fe > 0.01 || Fx || Fy || Fz) {   // 餌へ向かう力＋興奮による小刻みな方向転換
+        var wF = P.wFood * (0.35 + 0.65 * fe) * calm, jit = fe * 0.7;
+        Dx += wF * Fx + jit * (rng() - 0.5) * 2; Dy += wF * Fy + jit * (rng() - 0.5); Dz += wF * Fz + jit * (rng() - 0.5) * 2;
+      }
+
+      // 7. 旋回角速度の制限
+      var Dl = Math.sqrt(Dx * Dx + Dy * Dy + Dz * Dz), tx, ty, tz;
+      if (Dl < 1e-6) { tx = fx; ty = fy; tz = fz; } else { tx = Dx / Dl; ty = Dy / Dl; tz = Dz / Dl; }
+      var panic = si > tU ? si : tU;
+      var turnMax = (P.maxTurn + (P.panicTurn - P.maxTurn) * Math.max(panic, oU, fe * 0.6)) * dt;
+      var cs = fx * tx + fy * ty + fz * tz, nx, ny, nzz;
+      if (cs >= Math.cos(turnMax)) { nx = tx; ny = ty; nzz = tz; }
+      else {
+        var ppx_ = tx - fx * cs, ppy_ = ty - fy * cs, ppz_ = tz - fz * cs, pl = Math.sqrt(ppx_ * ppx_ + ppy_ * ppy_ + ppz_ * ppz_);
+        if (pl < 1e-5) { // ほぼ真後ろ：瞬間反転は禁止。好み側へ旋回
+          var dps = this.sx[i] * fx + this.sy[i] * fy + this.sz[i] * fz;
+          ppx_ = this.sx[i] - fx * dps; ppy_ = (this.sy[i] - fy * dps) * 0.3; ppz_ = this.sz[i] - fz * dps;
+          pl = Math.sqrt(ppx_ * ppx_ + ppy_ * ppy_ + ppz_ * ppz_);
+          if (pl < 1e-5) { ppx_ = -fz; ppy_ = 0; ppz_ = fx; pl = Math.sqrt(ppx_ * ppx_ + ppz_ * ppz_) || 1; }
+        }
+        ppx_ /= pl; ppy_ /= pl; ppz_ /= pl;
+        var ca = Math.cos(turnMax), sa = Math.sin(turnMax);
+        nx = fx * ca + ppx_ * sa; ny = fy * ca + ppy_ * sa; nzz = fz * ca + ppz_ * sa;
+      }
+      // 魚は真上・真下へは泳がない
+      if (ny > cosPitch || ny < -cosPitch) {
+        ny = ny > 0 ? cosPitch : -cosPitch;
+        var hz2 = Math.sqrt(nx * nx + nzz * nzz);
+        var hs = Math.sqrt(1 - ny * ny) / (hz2 > 1e-6 ? hz2 : 1);
+        if (hz2 < 1e-6) { nx = fx; nzz = fz; hz2 = Math.sqrt(nx * nx + nzz * nzz) || 1; hs = Math.sqrt(1 - ny * ny) / hz2; }
+        nx *= hs; nzz *= hs;
+      }
+
+      // 速度
+      var target = P.cruise * this.speedBias[i];
+      if (spdN > 0) target += (spdSum / spdN - target) * P.speedMatch;
+      target += (P.panicSpeed - P.cruise) * (panic + 0.35 * fe) + 0.8 * oU;
+      target = clamp(target, P.minSpeed, P.panicSpeed);
+      var acc = (P.maxAccel + (P.panicAccel - P.maxAccel) * Math.max(panic, fe * 0.5)) * dt;
+      var ns = sp + clamp(target - sp, -acc, acc);
+      ns = clamp(ns, P.minSpeed, P.panicSpeed);
+      nvx[i] = nx * ns; nvy[i] = ny * ns; nvz[i] = nzz * ns;
+
+      // 8. 反応状態（stress）：直接刺激＋近傍からの警戒伝達＋減衰
+      var st = si, direct = tU * this.resp[i];
+      if (direct > st) st += (direct - st) * Math.min(1, dt * 14);
+      var alarmT = nbStress * P.alarmGain;
+      if (alarmT > st) st += (alarmT - st) * Math.min(1, dt * P.alarm);
+      st -= st * P.stressDecay * dt;
+      nstress[i] = st < 0 ? 0 : st > 1 ? 1 : st;
+    }
+
+    // 積分・後処理
+    var joinedNow = 0, maxS = 0;
+    for (i = 0; i < n; i++) {
+      var X = px[i] + nvx[i] * dt, Y = py[i] + nvy[i] * dt, Z = pz[i] + nvz[i] * dt;
+      var VX = nvx[i], VY = nvy[i], VZ = nvz[i];
+      // めり込み防止（最後の保険）：最短方向へ段階的に押し出す
+      var ins = 0;
+      for (k = 0; k < obs.length; k++) {
+        o = obs[k];
+        var rr = o.r + P.bodyRadius, cyP = o.t === 1 ? (Y < o.y0 ? o.y0 : Y > o.y1 ? o.y1 : Y) : o.y;
+        var ox = X - o.x, oy = Y - cyP, oz = Z - o.z, dd = Math.sqrt(ox * ox + oy * oy + oz * oz);
+        if (dd >= rr) continue;
+        ins = 1;
+        if (dd < 1e-5) { ox = this.sx[i]; oy = this.sy[i]; oz = this.sz[i]; dd = 1e-5; }
+        var nxo = ox / dd, nyo = oy / dd, nzo = oz / dd, pen = rr - dd;
+        var push = Math.max(Math.min(pen, 0.06), pen * 0.5);
+        X += nxo * push; Y += nyo * push; Z += nzo * push;
+        var vin = VX * nxo + VY * nyo + VZ * nzo;
+        if (vin < 0) { VX -= vin * nxo; VY -= vin * nyo; VZ -= vin * nzo; }
+      }
+      if (ins && !this.inside[i]) this.intrusions++;
+      this.inside[i] = ins;
+      // NaN・無限大のガード
+      if (!(isFinite(X) && isFinite(Y) && isFinite(Z) && isFinite(VX) && isFinite(VY) && isFinite(VZ))) {
+        X = cxm + (this.rng() - 0.5); Y = cym + (this.rng() - 0.5); Z = czm + (this.rng() - 0.5);
+        VX = this.sx[i] * P.cruise; VY = 0; VZ = this.sz[i] * P.cruise;
+      }
+      px[i] = X; py[i] = Y; pz[i] = Z; vx[i] = VX; vy[i] = VY; vz[i] = VZ;
+      stress[i] = nstress[i]; feed[i] = nfeed[i];
+      if (nstress[i] > maxS) maxS = nstress[i];
+      var spd = Math.sqrt(VX * VX + VY * VY + VZ * VZ);
+      this.phase[i] += dt * (9 + spd * 4.5);
+      if (this.phase[i] > 6283.18) this.phase[i] -= 6283.18;
+      if (flock[i] !== 0 && this.joinT[i] > 1.0) flock[i] = 0;
+      if (flock[i] === 0) joinedNow++;
+    }
+    this.joined = joinedNow;
+    this.stats.maxStress = maxS;
+    this._updateCentroid();
+  };
+
+  FlockEngine.prototype._updateCentroid = function () {
+    var n = this.n, sx = 0, sy = 0, sz = 0, m = 0;
+    for (var i = 0; i < n; i++) if (this.flock[i] === 0) { sx += this.px[i]; sy += this.py[i]; sz += this.pz[i]; m++; }
+    if (m === 0) return;
+    sx /= m; sy /= m; sz /= m;
+    var s2 = 0;
+    for (i = 0; i < n; i++) if (this.flock[i] === 0) {
+      var dx = this.px[i] - sx, dy = this.py[i] - sy, dz = this.pz[i] - sz;
+      s2 += dx * dx + dy * dy + dz * dz;
+    }
+    this.centroid[0] = sx; this.centroid[1] = sy; this.centroid[2] = sz;
+    this.spread = Math.sqrt(s2 / m);
+    this.mainN = m;
+  };
+
+  /* ---------------- 観察指標（開発者表示） ---------------- */
+  FlockEngine.prototype.analyze = function () {
+    var n = this.n, P = this.params;
+    this._updateCentroid();
+    var hx = 0, hy = 0, hz = 0, m = 0, nnSum = 0, nnN = 0, nnMin = 1e9, spSum = 0;
+    for (var i = 0; i < n; i++) {
+      var s = Math.hypot(this.vx[i], this.vy[i], this.vz[i]);
+      spSum += s;
+      if (this.flock[i] === 0 && s > 1e-6) { hx += this.vx[i] / s; hy += this.vy[i] / s; hz += this.vz[i] / s; m++; }
+      if (this.nn[i] > 0) { nnSum += this.nn[i]; nnN++; if (this.nn[i] < nnMin) nnMin = this.nn[i]; }
+    }
+    // 連結成分（近傍グラフ: 距離 < rAli）
+    var parent = new Int32Array(n);
+    for (i = 0; i < n; i++) parent[i] = i;
+    function find(a) { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; }
+    var grid = this.grid, keys = this._keys, r2 = P.rAli * P.rAli;
+    grid.build(this.px, this.py, this.pz, n);
+    for (i = 0; i < n; i++) {
+      var k = grid.cellKeys(this.px[i], this.py[i], this.pz[i], keys);
+      for (var q = 0; q < k; q++) for (var j = grid.head[keys[q]]; j !== -1; j = grid.next[j]) {
+        if (j <= i) continue;
+        var dx = this.px[j] - this.px[i], dy = this.py[j] - this.py[i], dz = this.pz[j] - this.pz[i];
+        if (dx * dx + dy * dy + dz * dz < r2) { var a = find(i), b = find(j); if (a !== b) parent[a] = b; }
+      }
+    }
+    // 小さな断片（3匹未満）は数えない
+    var sizes = new Map();
+    for (i = 0; i < n; i++) { var rt = find(i); sizes.set(rt, (sizes.get(rt) || 0) + 1); }
+    var comps = 0; sizes.forEach(function (v) { if (v >= 3) comps++; });
+    var st = this.stats;
+    st.P = m ? Math.hypot(hx, hy, hz) / m : 0;
+    st.meanNN = nnN ? nnSum / nnN : 0;
+    st.minNN = nnN ? nnMin : 0;
+    st.radius = this.spread;
+    st.components = comps;
+    st.meanSpeed = n ? spSum / n : 0;
+    return st;
+  };
+
+  var api = { FlockEngine: FlockEngine, SARDINE: SARDINE, smoothstep: smoothstep, growthTarget: growthTarget, VERSION: ENGINE_VERSION };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.FLOCK = api;
+})(typeof window !== 'undefined' ? window : this);
+
+</script>
+<script>
+/* =====================================================================
+ * FLOCK app v0.10（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * ===================================================================== */
+(function () {
+  'use strict';
+
+  var STEP = 1 / 30;                 // 物理更新：固定30Hz
+  var CAP = 640;
+  var MAX_OBS = 5;
+  var FOV = 52;
+
+  /* ---------------- 保存（失敗しても動作は継続） ---------------- */
+  var store = {
+    get: function (k, d) { try { var v = localStorage.getItem('flock.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem('flock.' + k, JSON.stringify(v)); } catch (e) { /* noop */ } }
+  };
+  var settings = Object.assign({ growth: false, quality: 'auto', sound: true, debug: false,
+    seabed: false, rocks: false, range: false, scalebar: false, touchSfx: true, volume: 70 }, store.get('settings', {}));
+  if (settings.touchSound === 'none') settings.touchSfx = false;   // v0.6 の保存値からの移行
+  delete settings.touchSound;
+  function saveSettings() { store.set('settings', settings); }
+
+  function qualityCap() { return settings.quality === 'low' ? 250 : 500; }
+  function basePR() { var d = window.devicePixelRatio || 1; return settings.quality === 'low' ? 1 : Math.min(d, 2); }
+
+  /* ---------------- シミュレーション ---------------- */
+  var engine = new FLOCK.FlockEngine({ capacity: CAP, growth: settings.growth, maxCount: qualityCap() });
+
+  /* ---------------- Three.js ---------------- */
+  var canvas = document.getElementById('scene');
+  var renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: settings.quality !== 'low', powerPreference: 'high-performance' });
+  } catch (e) {
+    document.getElementById('guide').hidden = false;
+    document.getElementById('guide').textContent = 'この端末ではWebGLが使えないため表示できません。別のブラウザでお試しください。';
+    return;
+  }
+  var pixelRatio = basePR();
+  renderer.setPixelRatio(pixelRatio);
+  renderer.setClearColor(0x03101b, 1);
+
+  var scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x0b3a55, 0.028);
+  var camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 220);
+
+  // 背景：上方は明るいターコイズ、下方は深い紺
+  var sky = new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { uTop: { value: new THREE.Color(0x3aa5b2) }, uMid: { value: new THREE.Color(0x0b3a55) }, uBot: { value: new THREE.Color(0x020a12) }, uTime: { value: 0 } },
+    vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uBot; uniform float uTime; varying vec3 vDir;' +
+      'void main(){ vec3 d = normalize(vDir); float h = d.y;' +
+      'vec3 c = h > 0.0 ? mix(uMid, uTop, pow(h, 1.1)) : mix(uMid, uBot, pow(-h, 0.55));' +
+      // 水面から差し込む光の筋（v0.2 / 試作Bを参考）。ゆっくり揺らぐ
+      'float a = atan(d.z, d.x);' +
+      'float r1 = pow(0.5 + 0.5 * sin(a * 9.0 + uTime * 0.07 + 1.7 * sin(a * 2.0 - uTime * 0.05)), 5.0);' +
+      'float r2 = pow(0.5 + 0.5 * sin(a * 17.0 - uTime * 0.11 + 2.3 * sin(a * 3.0 + uTime * 0.04)), 8.0);' +
+      'float beam = (0.65 * r1 + 0.35 * r2) * smoothstep(-0.15, 0.55, h) * (1.0 - smoothstep(0.75, 1.0, h));' +
+      'c += vec3(0.42, 0.85, 0.82) * beam * 0.13;' +
+      'gl_FragColor = vec4(c, 1.0); }'
+  }));
+  sky.renderOrder = -1;
+  scene.add(sky);
+
+  scene.add(new THREE.HemisphereLight(0xa6e2ff, 0x07202e, 0.8));
+  var sun = new THREE.DirectionalLight(0xffffff, 1.05); sun.position.set(0.3, 1, 0.35); scene.add(sun);
+  var under = new THREE.DirectionalLight(0x5fc8d8, 0.35); under.position.set(-0.4, -0.3, -1); scene.add(under);
+
+  // マリンスノー（奥行きとカメラ移動の手がかり）
+  (function () {
+    var N = 700, a = new Float32Array(N * 3), r = Math.random;
+    for (var i = 0; i < N; i++) { a[i * 3] = (r() - 0.5) * 70; a[i * 3 + 1] = (r() - 0.5) * 34; a[i * 3 + 2] = (r() - 0.5) * 60; }
+    var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(a, 3));
+    var c = document.createElement('canvas'); c.width = c.height = 32;
+    var x = c.getContext('2d'), gr = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 32, 32);
+    var m = new THREE.PointsMaterial({ size: 0.09, map: new THREE.CanvasTexture(c), color: 0xa9dbe2, transparent: true, opacity: 0.45, depthWrite: false });
+    scene.add(new THREE.Points(g, m));
+  })();
+
+  /* ---------------- 魚体（InstancedMesh＋頂点シェーダで尾びれ運動） ---------------- */
+  function buildFishGeometry() {
+    // z+ が頭。全長 ≒ 1.17（インスタンス側で bodyLen 倍）。左右に薄い紡錘形
+    // v0.3: 体高を体長の約19%に抑えた細身の紡錘形。吻をやや尖らせる
+    var rings = [[0.58, 0, 0], [0.50, 0.026, 0.038], [0.38, 0.054, 0.086], [0.18, 0.068, 0.11], [-0.05, 0.062, 0.098], [-0.24, 0.042, 0.062], [-0.37, 0.018, 0.028]];
+    var seg = 10, pos = [], col = [], idx = [];
+    // 背：青緑、体側上部：青紫の光沢帯、体側：銀、腹：白
+    var back = new THREE.Color(0x1d4f66), band = new THREE.Color(0x8e9fc6), side = new THREE.Color(0xc0d0d9), belly = new THREE.Color(0xf3f7f8), fin = new THREE.Color(0x8aa3b0), t = new THREE.Color();
+    rings.forEach(function (rg) {
+      for (var s = 0; s < seg; s++) {
+        var a = s / seg * Math.PI * 2, cy = Math.sin(a), cx = Math.cos(a);
+        pos.push(cx * rg[1], cy * rg[2], rg[0]);
+        if (cy > 0.3) t.copy(band).lerp(back, Math.min(1, (cy - 0.3) / 0.5));
+        else if (cy > 0) t.copy(side).lerp(band, cy / 0.3);
+        else t.copy(side).lerp(belly, Math.min(1, -cy * 1.6));
+        col.push(t.r, t.g, t.b);
+      }
+    });
+    for (var r = 0; r < rings.length - 1; r++) for (var s = 0; s < seg; s++) {
+      var a0 = r * seg + s, b0 = r * seg + (s + 1) % seg, c0 = (r + 1) * seg + s, d0 = (r + 1) * seg + (s + 1) % seg;
+      idx.push(a0, c0, b0, b0, c0, d0);
+    }
+    var cap = pos.length / 3, base = (rings.length - 1) * seg;
+    pos.push(0, 0, -0.4); col.push(side.r, side.g, side.b);
+    for (s = 0; s < seg; s++) idx.push(base + s, cap, base + (s + 1) % seg);
+    var f0 = pos.length / 3;   // 二叉の尾びれ（縦）
+    // v0.4: 写真に合わせて縮小。開きは体高とほぼ同じ（旧：体高の約1.9倍）、長さは全長の約15%（旧：約22%）
+    pos.push(0, 0.022, -0.355, 0, 0.115, -0.55, 0, 0, -0.47, 0, -0.115, -0.55, 0, -0.022, -0.355);
+    for (s = 0; s < 5; s++) col.push(fin.r, fin.g, fin.b);
+    idx.push(f0, f0 + 1, f0 + 2, f0, f0 + 2, f0 + 4, f0 + 4, f0 + 2, f0 + 3);
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }
+  var fishGeo = buildFishGeometry();
+  var phaseAttr = new THREE.InstancedBufferAttribute(new Float32Array(CAP), 1);
+  var ampAttr = new THREE.InstancedBufferAttribute(new Float32Array(CAP), 1);
+  phaseAttr.setUsage(THREE.DynamicDrawUsage); ampAttr.setUsage(THREE.DynamicDrawUsage);
+  fishGeo.setAttribute('aPhase', phaseAttr);
+  fishGeo.setAttribute('aAmp', ampAttr);
+  var flashAttr = new THREE.InstancedBufferAttribute(new Float32Array(CAP), 1);
+  flashAttr.setUsage(THREE.DynamicDrawUsage);
+  fishGeo.setAttribute('aFlash', flashAttr);
+  var markAttr = new THREE.InstancedBufferAttribute(new Float32Array(CAP * 3), 3);   // 色付けした個体の発色
+  fishGeo.setAttribute('aMark', markAttr);
+  var baseCol = new Float32Array(CAP * 3);
+  var fishMat = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 95, specular: 0xa9c3cf, side: THREE.DoubleSide });
+  fishMat.onBeforeCompile = function (sh) {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aPhase;\nattribute float aAmp;\nattribute float aFlash;\nvarying float vFlash;\nattribute vec3 aMark;\nvarying vec3 vMark;')
+      .replace('#include <begin_vertex>',
+        '#include <begin_vertex>\n' +
+        'vFlash = aFlash;\nvMark = aMark;\n' +
+        'float tailW = 1.0 - smoothstep(-0.64, 0.2, position.z);\n' +
+        'transformed.x += sin(aPhase - position.z * 6.5) * (0.012 + 0.11 * tailW) * aAmp;');
+    // 驚いた個体・急旋回した個体の体側が一瞬明るく光る（v0.2 / 試作Bを参考。控えめ）
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vFlash;\nvarying vec3 vMark;')
+      .replace('#include <fog_fragment>', 'gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.9, 0.98, 1.0), vFlash) + vMark * 0.3;\n#include <fog_fragment>');
+  };
+  var fish = new THREE.InstancedMesh(fishGeo, fishMat, CAP);
+  fish.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  fish.frustumCulled = false;
+  (function () {
+    var c = new THREE.Color();
+    for (var i = 0; i < CAP; i++) {
+      var v = 0.86 + Math.random() * 0.2;
+      c.setRGB(v * (0.97 + Math.random() * 0.03), v, v * (1.0 + Math.random() * 0.04));
+      fish.setColorAt(i, c);
+      baseCol[i * 3] = c.r; baseCol[i * 3 + 1] = c.g; baseCol[i * 3 + 2] = c.b;
+    }
+    fish.instanceColor.needsUpdate = true;
+  })();
+  fish.count = 0;
+  scene.add(fish);
+
+  // 描画用の向き（平滑化）とバンク角
+  var rh = new Float32Array(CAP * 3), roll = new Float32Array(CAP), renderedN = 0;
+
+  /* ---------------- 餌粒の描画（v0.10） ---------------- */
+  var foodPos = new Float32Array(engine.FOOD_CAP * 3);
+  var foodGeo = new THREE.BufferGeometry(); foodGeo.setAttribute('position', new THREE.BufferAttribute(foodPos, 3));
+  foodGeo.attributes.position.setUsage(THREE.DynamicDrawUsage);
+  var foodPts = new THREE.Points(foodGeo, new THREE.PointsMaterial({ size: 0.14, color: 0xf0bb72, transparent: true, depthWrite: false, map: (function () {
+    var c = document.createElement('canvas'); c.width = c.height = 32;
+    var x = c.getContext('2d'), g = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.55, 'rgba(255,255,255,0.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 32, 32); return new THREE.CanvasTexture(c);
+  })() }));
+  foodPts.frustumCulled = false; scene.add(foodPts);
+  function updateFoodPts() {
+    var n = engine.foodN;
+    for (var f = 0; f < n; f++) { foodPos[f * 3] = engine.foodX[f]; foodPos[f * 3 + 1] = engine.foodY[f]; foodPos[f * 3 + 2] = engine.foodZ[f]; }
+    foodGeo.setDrawRange(0, n); foodGeo.attributes.position.needsUpdate = true;
+  }
+
+  /* ---------------- 障害物の描画（v0.9）：浮き玉（係留ブイ）と岩の柱 ---------------- */
+  var obsVis = new Map(), pillarSeed = 0;
+  var glassMat = new THREE.MeshPhongMaterial({ color: 0x3f9488, specular: 0xffffff, shininess: 140, transparent: true, opacity: 0.88, emissive: 0x0a2626 });
+  var glassSelMat = glassMat.clone(); glassSelMat.emissive = new THREE.Color(0x2a5e52);
+  var ballGeo = new THREE.SphereGeometry(1, 40, 24);
+  var netGeo = (function () {   // 浮き玉を包む縄の網（経線8本・緯線3本）。曲面に沿う線で丸さが分かる
+    var pts = [], R = 1.02, N = 48;
+    function P(th, ph) { return [R * Math.sin(th) * Math.cos(ph), R * Math.cos(th), R * Math.sin(th) * Math.sin(ph)]; }
+    function seg(a, b) { pts.push(a[0], a[1], a[2], b[0], b[1], b[2]); }
+    for (var k = 0; k < 8; k++) { var ph = k / 8 * Math.PI * 2; for (var i = 0; i < N; i++) seg(P(i / N * Math.PI, ph), P((i + 1) / N * Math.PI, ph)); }
+    [0.62, 1.5708, 2.52].forEach(function (th) { for (var i = 0; i < N * 2; i++) seg(P(th, i / (N * 2) * Math.PI * 2), P(th, (i + 1) / (N * 2) * Math.PI * 2)); });
+    var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); return g;
+  })();
+  var netMat = new THREE.LineBasicMaterial({ color: 0x9a8159, transparent: true, opacity: 0.85 });
+  var ropeGeo = new THREE.CylinderGeometry(0.035, 0.035, 1, 6, 1, true);
+  var ropeMat = new THREE.MeshPhongMaterial({ color: 0x8a7454, shininess: 4 });
+  var sinkerGeo = new THREE.BoxGeometry(0.6, 0.32, 0.6);
+  var sinkerMat = new THREE.MeshPhongMaterial({ color: 0x3b4243, shininess: 6 });
+  var wireMat = new THREE.MeshBasicMaterial({ color: 0xf0c97c, wireframe: true, transparent: true, opacity: 0.35, fog: false });
+  var wireSphereGeo = new THREE.SphereGeometry(1, 16, 10), wireCylGeo = new THREE.CylinderGeometry(1, 1, 1, 16, 1, true);
+  var sandMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, map: (function () {   // 海底を表示していないときの足元の砂地
+    var c = document.createElement('canvas'); c.width = c.height = 64;
+    var x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 2, 32, 32, 32);
+    g.addColorStop(0, 'rgba(96,124,120,0.85)'); g.addColorStop(0.6, 'rgba(82,112,111,0.4)'); g.addColorStop(1, 'rgba(82,112,111,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
+  })() });
+
+  function buildPillarGeometry(seed, r, h) {   // 海底から立つ岩の柱。ノイズは実寸座標で（高さを変えても模様が伸びない）
+    var seg = 28, hsN = Math.max(10, Math.ceil((h + 0.6) / 0.3));
+    var g = new THREE.CylinderGeometry(1, 1, 1, seg, hsN, false), p = g.attributes.position, fs = new Float32Array(p.count);
+    for (var i = 0; i < p.count; i++) {
+      var x = p.getX(i), y = p.getY(i), z = p.getZ(i), rad = Math.sqrt(x * x + z * z);
+      var yy = (y + 0.5) * (h + 0.6) - 0.6, ang = Math.atan2(z, x), cx = Math.cos(ang), cz = Math.sin(ang);
+      var f = 1 + 0.26 * fbm(cx * r * 0.9, yy * 0.5, cz * r * 0.9, seed) + 0.06 * (1 - Math.abs(vnoise(cx * r * 3, yy * 2.2, cz * r * 3, seed + 5)));
+      var flare = 1 + 0.35 * Math.max(0, 1 - (yy + 0.6) / (r * 1.6));            // 根元を太く
+      var top = h - yy, taper = top < r ? Math.sqrt(Math.max(0.05, top / r)) * 0.5 + 0.5 : 1;   // 頂部を丸く
+      var R = r * f * flare * taper, Y = yy;
+      if (y > 0.49 && rad < 0.999) Y += r * 0.3 * (1 - rad * rad);
+      p.setXYZ(i, cx * R * rad, Y, cz * R * rad);
+      fs[i] = f;
+    }
+    g.computeVertexNormals();
+    var nrm = g.attributes.normal, col = new Float32Array(p.count * 3);
+    for (i = 0; i < p.count; i++) {
+      x = p.getX(i); y = p.getY(i); z = p.getZ(i);
+      var bump = Math.min(1, Math.max(0, (fs[i] - 1) * 2.4 + 0.5)), speck = vnoise(x * 5, y * 5, z * 5, seed + 57) * 0.5 + 0.5;
+      C_TMP.copy(C_DARK).lerp(C_LIGHT, Math.min(1, 0.22 + 0.5 * bump + 0.2 * speck));
+      var patch = vnoise(x * 1.3, y * 1.3, z * 1.3, seed + 77), algae = Math.min(1, Math.max(0, (nrm.getY(i) - 0.45) / 0.4)) * Math.max(0, patch * 1.6 + 0.2);
+      if (algae > 0) C_TMP.lerp(C_ALGAE, Math.min(0.55, algae));
+      if (y < 0.4) C_TMP.multiplyScalar(0.7 + 0.3 * Math.max(0, (y + 0.6) / 1.0));
+      col[i * 3] = C_TMP.r; col[i * 3 + 1] = C_TMP.g; col[i * 3 + 2] = C_TMP.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  }
+  function makeVis(o) {
+    var g = new THREE.Group(), v = { kind: o.kind, group: g };
+    if (o.kind === 'buoy') {
+      v.ball = new THREE.Mesh(ballGeo, glassMat); v.ball.renderOrder = 2;
+      v.net = new THREE.LineSegments(netGeo, netMat); v.net.renderOrder = 3;
+      v.rope = new THREE.Mesh(ropeGeo, ropeMat); v.sinker = new THREE.Mesh(sinkerGeo, sinkerMat);
+      g.add(v.ball); g.add(v.net); g.add(v.rope); g.add(v.sinker);
+      v.wire = new THREE.Mesh(wireSphereGeo, wireMat);
+    } else {
+      v.mesh = new THREE.Mesh(new THREE.BufferGeometry(), rockMat); v.builtR = -1; v.builtH = -1; v.seed = 500 + (++pillarSeed);
+      g.add(v.mesh);
+      v.wire = new THREE.Mesh(wireCylGeo, wireMat);
+    }
+    v.shadow = new THREE.Mesh(shadowGeo, shadowMat); v.shadow.rotation.x = -Math.PI / 2;
+    v.sand = new THREE.Mesh(shadowGeo, sandMat); v.sand.rotation.x = -Math.PI / 2;
+    scene.add(g); scene.add(v.wire); scene.add(v.shadow); scene.add(v.sand);
+    return v;
+  }
+  function disposeVis(v) {
+    scene.remove(v.group); scene.remove(v.wire); scene.remove(v.shadow); scene.remove(v.sand);
+    if (v.mesh) v.mesh.geometry.dispose();
+  }
+  function updateVis(v, o, sel) {
+    var P = engine.params, Re = o.radius + P.obsMargin + P.bodyRadius;
+    v.shadow.position.set(o.x, FLOOR_Y + 0.025, o.z); v.sand.position.set(o.x, FLOOR_Y + 0.015, o.z);
+    v.sand.visible = !settings.seabed;
+    if (o.kind === 'buoy') {
+      v.ball.position.set(o.x, o.y, o.z); v.ball.scale.setScalar(o.radius); v.ball.material = sel ? glassSelMat : glassMat;
+      v.net.position.copy(v.ball.position); v.net.scale.setScalar(o.radius);
+      var len = Math.max(0.01, o.y - o.radius - FLOOR_Y);
+      v.rope.position.set(o.x, FLOOR_Y + len / 2, o.z); v.rope.scale.set(1, len, 1);
+      v.sinker.position.set(o.x, FLOOR_Y + 0.06, o.z);
+      v.shadow.scale.set(o.radius * 2.2, o.radius * 2.2, 1); v.sand.scale.set(o.radius * 3 + 3, o.radius * 3 + 3, 1);
+      v.wire.position.copy(v.ball.position); v.wire.scale.setScalar(Re);
+    } else {
+      if (Math.abs(v.builtR - o.targetRadius) > 1e-3 || Math.abs(v.builtH - o.targetHeight) > 1e-3) {
+        v.mesh.geometry.dispose();
+        v.mesh.geometry = buildPillarGeometry(v.seed, o.targetRadius, o.targetHeight);
+        v.builtR = o.targetRadius; v.builtH = o.targetHeight;
+      }
+      v.mesh.position.set(o.x, FLOOR_Y, o.z);
+      v.mesh.scale.set(o.radius / v.builtR, o.height / v.builtH, o.radius / v.builtR);
+      v.shadow.scale.set(o.radius * 3.4, o.radius * 3.4, 1); v.sand.scale.set(o.radius * 4 + 3, o.radius * 4 + 3, 1);
+      v.wire.position.set(o.x, (o.y0 + o.y1) / 2, o.z); v.wire.scale.set(Re, Math.max(0.01, o.y1 - o.y0), Re);
+    }
+    v.wire.visible = showRadius;
+  }
+  function syncObstacles() {
+    var live = new Set(), so = mode === 'obstacle' ? findObstacle(selectedId) : null;
+    engine.obstacles.forEach(function (o) {
+      live.add(o.id);
+      var v = obsVis.get(o.id);
+      if (v && v.kind !== o.kind) { disposeVis(v); obsVis.delete(o.id); v = null; }
+      if (!v) { v = makeVis(o); obsVis.set(o.id, v); }
+      updateVis(v, o, o === so);
+    });
+    obsVis.forEach(function (v, id) { if (!live.has(id)) { disposeVis(v); obsVis.delete(id); } });
+    selRing.visible = !!(so && so.kind === 'buoy');
+    if (selRing.visible) {
+      selRing.position.set(so.x, so.y, so.z); selRing.quaternion.copy(camera.quaternion);
+      selRing.scale.setScalar(so.radius * 1.12 + 0.15);
+    }
+    floorRing.visible = !!so;
+    if (so) { floorRing.position.set(so.x, FLOOR_Y + 0.05, so.z); floorRing.scale.setScalar(so.radius * 1.4 + 0.4); }
+  }
+
+  // 刺激半径の可視化（開発者表示時のみ）
+  var touchViz = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), new THREE.MeshBasicMaterial({ color: 0x92e2db, wireframe: true, transparent: true, opacity: 0.4, fog: false }));
+  touchViz.visible = false; scene.add(touchViz);
+
+  // 選択中の障害物：破線リング＋4点ハンドル（v0.2 / 試作Bを参考）
+  /* ---------------- 目印（v0.3）：海底と1mマス目・岩・泳ぐ範囲の枠 ----------------
+   * 尺度：イワシの体長 bodyLen 0.32 ≒ 16cm として 1ワールド単位 = 0.5m（2単位 = 1m）。 */
+  var BND = engine.params.bounds, FLOOR_Y = -BND[1];
+  var causticTime = { value: 0 };   // 水面からの揺らめく光（海底・岩で共有）
+  var CAUSTIC_GLSL = 'float caus(vec2 p, float t){' +
+    'p *= 1.7; float a = sin(p.x * 1.3 + 1.6 * sin(p.y * 0.9 + t * 0.8));' +
+    'float b = sin(p.y * 1.1 + 1.6 * sin(p.x * 0.7 - t * 0.7));' +
+    'float c = sin((p.x + p.y) * 0.8 + 1.4 * sin((p.x - p.y) * 0.6 + t * 0.5));' +
+    'return pow(1.0 - abs(a + b + c) / 3.0, 12.0); }';
+  var seabed = new THREE.Mesh(new THREE.PlaneGeometry(140, 140, 1, 1), new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, extensions: { derivatives: true },
+    uniforms: { uSand: { value: new THREE.Color(0x52706f) }, uLine: { value: new THREE.Color(0xa6dcd4) }, uTime: causticTime },
+    vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+    fragmentShader: 'uniform vec3 uSand; uniform vec3 uLine; uniform float uTime; varying vec3 vW;' + CAUSTIC_GLSL +
+      'float grid(vec2 p, float s){ vec2 q = p / s; vec2 g = abs(fract(q - 0.5) - 0.5) / fwidth(q); return 1.0 - min(min(g.x, g.y), 1.0); }' +
+      'void main(){ float d = distance(vW, cameraPosition); float fade = exp(-pow(d * 0.032, 2.0));' +
+      'float rip = 0.5 + 0.5 * sin(vW.x * 1.3 + 2.0 * sin(vW.z * 0.4));' +
+      'vec3 c = uSand * (0.82 + 0.18 * rip);' +
+      'c += vec3(0.5, 0.82, 0.76) * caus(vW.xz, uTime) * 0.16;' +
+      'c = mix(c, uLine, max(grid(vW.xz, 2.0) * 0.32, grid(vW.xz, 10.0) * 0.7));' +   // 細線 1m、太線 5m
+      'gl_FragColor = vec4(c, 0.9 * fade); }'
+  }));
+  seabed.rotation.x = -Math.PI / 2; seabed.position.y = FLOOR_Y; seabed.visible = false; scene.add(seabed);
+
+  /* ---- 岩（v0.8）：多重ノイズの凹凸＋平面で割った面、くぼみの陰り、上面の藻、揺らめく光、砂への接地影 ---- */
+  function makeRng(seed) { var a = seed >>> 0; return function () { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; }
+  function hash3(x, y, z, s) { var h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7 + s * 19.31) * 43758.5453; return h - Math.floor(h); }
+  function vnoise(x, y, z, s) {   // 3D値ノイズ（-1〜1）
+    var xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z), xf = x - xi, yf = y - yi, zf = z - zi;
+    var u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+    function L(a, b, t) { return a + (b - a) * t; }
+    var r = L(L(L(hash3(xi, yi, zi, s), hash3(xi + 1, yi, zi, s), u), L(hash3(xi, yi + 1, zi, s), hash3(xi + 1, yi + 1, zi, s), u), v),
+              L(L(hash3(xi, yi, zi + 1, s), hash3(xi + 1, yi, zi + 1, s), u), L(hash3(xi, yi + 1, zi + 1, s), hash3(xi + 1, yi + 1, zi + 1, s), u), v), w);
+    return r * 2 - 1;
+  }
+  function fbm(x, y, z, s) { var a = 0.5, f = 1, sum = 0; for (var i = 0; i < 4; i++) { sum += a * vnoise(x * f, y * f, z * f, s + i * 7); a *= 0.5; f *= 2.03; } return sum; }
+  var C_DARK = new THREE.Color(0x2c3230), C_LIGHT = new THREE.Color(0x857f72), C_ALGAE = new THREE.Color(0x58703c), C_TMP = new THREE.Color();
+  function buildRockGeometry(seed, detail) {
+    var src = new THREE.IcosahedronGeometry(1, detail), sp = src.attributes.position, map = new Map(), verts = [], index = [];
+    for (var i = 0; i < sp.count; i++) {   // 重複頂点を統合（なめらかな陰影のため）
+      var key = Math.round(sp.getX(i) * 1e4) + ',' + Math.round(sp.getY(i) * 1e4) + ',' + Math.round(sp.getZ(i) * 1e4), id = map.get(key);
+      if (id === undefined) { id = verts.length / 3; verts.push(sp.getX(i), sp.getY(i), sp.getZ(i)); map.set(key, id); }
+      index.push(id);
+    }
+    src.dispose();
+    var rng = makeRng(seed * 7919 + 13), cuts = [], nc = 3 + Math.floor(rng() * 3);
+    for (var c = 0; c < nc; c++) {   // 割れた面：ランダムな平面で削る（真下は除く）
+      var th = rng() * Math.PI * 2, cy = -0.15 + rng() * 1.05, cr = Math.sqrt(1 - cy * cy);
+      cuts.push([Math.cos(th) * cr, cy, Math.sin(th) * cr, 0.68 + rng() * 0.26]);
+    }
+    var n = verts.length / 3, pos = new Float32Array(n * 3), hs = new Float32Array(n), maxR = 0;
+    for (i = 0; i < n; i++) {
+      var x = verts[i * 3], y = verts[i * 3 + 1], z = verts[i * 3 + 2];
+      var h = 1 + 0.34 * fbm(x * 1.3, y * 1.3, z * 1.3, seed) + 0.07 * (1 - Math.abs(vnoise(x * 5, y * 5, z * 5, seed + 31))) + 0.025 * vnoise(x * 13, y * 13, z * 13, seed + 41);
+      x *= h; y *= h; z *= h;
+      for (c = 0; c < cuts.length; c++) { var q = cuts[c], dd = x * q[0] + y * q[1] + z * q[2]; if (dd > q[3]) { var k = (dd - q[3]) * 0.75; x -= q[0] * k; y -= q[1] * k; z -= q[2] * k; } }
+      pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z; hs[i] = h;
+      var rr = Math.sqrt(x * x + y * y + z * z); if (rr > maxR) maxR = rr;
+    }
+    for (i = 0; i < n * 3; i++) pos[i] /= maxR;   // 最大半径を1に（＝当たり判定の半径）
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setIndex(index);
+    geo.computeVertexNormals();
+    var nrm = geo.attributes.normal, col = new Float32Array(n * 3);
+    for (i = 0; i < n; i++) {
+      x = pos[i * 3]; y = pos[i * 3 + 1]; z = pos[i * 3 + 2];
+      var bump = Math.min(1, Math.max(0, (hs[i] - 1) * 2.4 + 0.5));            // 出っ張りほど明るく、くぼみほど暗い
+      var speck = vnoise(x * 11, y * 11, z * 11, seed + 57) * 0.5 + 0.5;
+      C_TMP.copy(C_DARK).lerp(C_LIGHT, Math.min(1, 0.22 + 0.5 * bump + 0.2 * speck));
+      var up = nrm.getY(i), patch = vnoise(x * 2.6, y * 2.6, z * 2.6, seed + 77);   // 藻は上面にまだらに
+      var algae = Math.min(1, Math.max(0, (up - 0.55) / 0.4)) * Math.max(0, patch * 1.6 + 0.1);
+      if (algae > 0) C_TMP.lerp(C_ALGAE, Math.min(0.55, algae));
+      if (y < -0.35) C_TMP.multiplyScalar(0.7 + 0.3 * Math.max(0, (y + 0.75) / 0.4));   // 砂に埋まる根元を暗く
+      col[i * 3] = C_TMP.r; col[i * 3 + 1] = C_TMP.g; col[i * 3 + 2] = C_TMP.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return geo;
+  }
+  var rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 });
+  rockMat.onBeforeCompile = function (sh) {   // 上を向いた面に、水面からの揺らめく光（コースティクス）
+    sh.uniforms.uTime = causticTime;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying float vUp;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvUp = normalize(mat3(modelMatrix) * objectNormal).y;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nvarying vec3 vWPos;\nvarying float vUp;\n' + CAUSTIC_GLSL)
+      .replace('#include <fog_fragment>', 'gl_FragColor.rgb += vec3(0.5, 0.82, 0.76) * caus(vWPos.xz, uTime) * smoothstep(0.15, 0.85, vUp) * 0.3;\n#include <fog_fragment>');
+  };
+  var shadowTex = (function () {
+    var c = document.createElement('canvas'); c.width = c.height = 64;
+    var x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 4, 32, 32, 32);
+    g.addColorStop(0, 'rgba(0,0,0,0.75)'); g.addColorStop(0.55, 'rgba(0,0,0,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(c);
+  })();
+  var shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: 0.6, color: 0x000000 });
+  var shadowGeo = new THREE.PlaneGeometry(1, 1);
+
+  var ROCKS = [[-7, -2.5, 1.8], [6.5, 3, 1.4], [1, -8.5, 2.2], [-3.5, 7.5, 1.2], [11, -5, 1.6], [-12, 5, 1.5]];   // x, z, 半径
+  var rockObs = [], rockGroup = new THREE.Group(), rockShadows = new THREE.Group();
+  (function () {
+    var rng = makeRng(2026);
+    function place(x, z, r, seed, detail) {
+      var m = new THREE.Mesh(buildRockGeometry(seed, detail), rockMat), cy = FLOOR_Y - r * 0.22;
+      m.position.set(x, cy, z); m.scale.set(r, r * 0.78, r * (0.85 + rng() * 0.25)); m.rotation.y = rng() * Math.PI * 2;
+      rockGroup.add(m);
+      var s = new THREE.Mesh(shadowGeo, shadowMat);
+      s.rotation.x = -Math.PI / 2; s.position.set(x, FLOOR_Y + 0.02, z); s.scale.set(r * 2.7, r * 2.7, 1);
+      rockShadows.add(s);
+      if (r >= 0.45) rockObs.push({ id: 'rock' + seed, kind: 'sphere', x: x, y: cy, z: z, radius: r, enabled: true, vx: 0, vy: 0, vz: 0, fixed: true });
+    }
+    ROCKS.forEach(function (r, n) {
+      place(r[0], r[1], r[2], n + 1, 16);
+      var ns = 2 + Math.floor(rng() * 2);   // 周りに小さな石を添える
+      for (var k = 0; k < ns; k++) {
+        var a = rng() * Math.PI * 2, d = r[2] * (0.95 + rng() * 0.5), sr = r[2] * (0.18 + rng() * 0.27);
+        place(r[0] + Math.cos(a) * d, r[1] + Math.sin(a) * d, sr, 100 + n * 10 + k, 5);
+      }
+    });
+  })();
+  rockGroup.visible = false; rockShadows.visible = false; scene.add(rockGroup); scene.add(rockShadows);
+
+  var rangeFrame = (function () {   // 群れが泳ぐ範囲（ソフト境界の楕円体）
+    var g = new THREE.Group(), mat = new THREE.LineBasicMaterial({ color: 0x92e2db, transparent: true, opacity: 0.22, depthWrite: false });
+    function ring(fn) { var pts = []; for (var i = 0; i <= 96; i++) pts.push(fn(i / 96 * Math.PI * 2)); g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat)); }
+    [-0.6, -0.3, 0, 0.3, 0.6].forEach(function (h) {
+      var s = Math.sqrt(1 - h * h);
+      ring(function (a) { return new THREE.Vector3(Math.cos(a) * s * BND[0], h * BND[1], Math.sin(a) * s * BND[2]); });
+    });
+    [0, Math.PI / 4, Math.PI / 2, Math.PI * 3 / 4].forEach(function (ph) {
+      ring(function (a) { return new THREE.Vector3(Math.cos(a) * Math.cos(ph) * BND[0], Math.sin(a) * BND[1], Math.cos(a) * Math.sin(ph) * BND[2]); });
+    });
+    g.visible = false; scene.add(g); return g;
+  })();
+
+  function applyLandmarks() {
+    seabed.visible = !!settings.seabed;
+    rockGroup.visible = !!settings.rocks;
+    rockShadows.visible = !!(settings.rocks && settings.seabed);
+    engine.landmarks = settings.rocks ? rockObs : [];
+    rangeFrame.visible = !!settings.range;
+    document.getElementById('scalebar').hidden = !settings.scalebar;
+  }
+
+  var selRing = (function () {
+    var pts = [], N = 72;
+    for (var i = 0; i <= N; i++) { var a = i / N * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); }
+    var line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineDashedMaterial({ color: 0xb2fdea, dashSize: 0.07, gapSize: 0.07, transparent: true, opacity: 0.85, depthTest: false, fog: false }));
+    line.computeLineDistances();
+    var handles = new THREE.Points(new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0)]),
+      new THREE.PointsMaterial({ color: 0xcffff5, size: 6, sizeAttenuation: false, depthTest: false, fog: false }));
+    line.renderOrder = 5; handles.renderOrder = 5;
+    var g = new THREE.Group(); g.add(line); g.add(handles); g.visible = false; scene.add(g);
+    return g;
+  })();
+
+  var floorRing = (function () {   // 選択中の障害物の足元（海底）の破線リング
+    var pts = [], N = 96;
+    for (var i = 0; i <= N; i++) { var a = i / N * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a), 0, Math.sin(a))); }
+    var line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineDashedMaterial({ color: 0xb2fdea, dashSize: 0.06, gapSize: 0.06, transparent: true, opacity: 0.9, fog: false }));
+    line.computeLineDistances(); line.visible = true; line.renderOrder = 5;
+    var g = new THREE.Group(); g.add(line); g.visible = false; scene.add(g);
+    return g;
+  })();
+
+  /* ---------------- カメラ ---------------- */
+  var camTarget = new THREE.Vector3().fromArray(engine.centroid);
+  var camFwd = new THREE.Vector3(0, 0, -1);
+  var camDist = 12, spreadSm = engine.spread, zoom = 1, W = 1, H = 1;
+  var userYaw = 0, userPitch = 0.24, ORBIT_K = 0.006;   // v0.3 視点回転（観察モードの1本指／全モードの2本指）
+  function clampPitch(p) { return Math.min(1.3, Math.max(-0.2, p)); }
+  var tanHalf = Math.tan(FOV * Math.PI / 360);
+  function desiredDist() {
+    var aspect = W / H;
+    var d = (2.8 * Math.max(0.8, spreadSm) / 0.55) / (2 * tanHalf * Math.min(aspect, 1));
+    return Math.min(38, Math.max(6, d)) * zoom;
+  }
+  function updateCamera(dt, clock) {
+    var c = engine.centroid;
+    if (!drag) {
+      var k = 1 - Math.exp(-dt * 0.9);
+      camTarget.x += (c[0] - camTarget.x) * k; camTarget.y += (c[1] - camTarget.y) * k; camTarget.z += (c[2] - camTarget.z) * k;
+    }
+    spreadSm += (engine.spread - spreadSm) * (1 - Math.exp(-dt * 0.5));
+    camDist += (desiredDist() - camDist) * (1 - Math.exp(-dt * 1.2));
+    var t = clock, yaw = userYaw + 0.22 * Math.sin(t * 0.043), pitch = userPitch + 0.05 * Math.sin(t * 0.031);
+    camera.position.set(
+      camTarget.x + Math.sin(yaw) * Math.cos(pitch) * camDist,
+      camTarget.y + Math.sin(pitch) * camDist,
+      camTarget.z + Math.cos(yaw) * Math.cos(pitch) * camDist);
+    if (camera.position.y < FLOOR_Y + 0.6) camera.position.y = FLOOR_Y + 0.6;   // 海底より下に潜らない
+    camera.lookAt(camTarget);
+    camera.updateMatrixWorld();
+    camera.getWorldDirection(camFwd);
+    sky.position.copy(camera.position);
+    sky.material.uniforms.uTime.value = clock;
+    causticTime.value = clock;
+    engine.viewHalf = camDist * tanHalf * (W / H);
+  }
+  function viewSizeAtTarget() { var h = 2 * camDist * tanHalf; return { h: h, w: h * W / H }; }
+
+  /* ---------------- 座標変換（スクリーン → 基準奥行き面） ---------------- */
+  var raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(), tmpV = new THREE.Vector3();
+  function setRay(sx, sy) {
+    var r = canvas.getBoundingClientRect();
+    ndc.set((sx - r.left) / r.width * 2 - 1, -((sy - r.top) / r.height * 2 - 1));
+    raycaster.setFromCamera(ndc, camera);
+    return raycaster.ray;
+  }
+  function screenToPlane(sx, sy, through, out) {
+    var ray = setRay(sx, sy);
+    plane.setFromNormalAndCoplanarPoint(camFwd, through);
+    return ray.intersectPlane(plane, out);
+  }
+
+  /* ---------------- 入力：タッチ忌避 ---------------- */
+  var mode = 'touch';
+  var pointers = new Map();
+  var gesture = 'none';            // none | touch | obstacle | look | pinch | wait
+  var look = null;                 // 観察モードのドラッグ（視点回転）／タップ（色付け）
+  var pinch = null;
+  var touchScale = 1;
+  var touch = { down: false, sx: 0, sy: 0, s: 0, grow: 0, init: false, cur: new THREE.Vector3(), prev: new THREE.Vector3(), fresh: false, nx: 0, ny: 0, nt: 0, minHold: 0 };
+  var TAP_MIN = 0.15;
+  var rep = { ax: 0, ay: 0, az: 0, bx: 0, by: 0, bz: 0, fx: 0, fy: 0, fz: -1, R: 1, depth: 1.6, s: 0 };
+  var repList = [rep], emptyList = [];
+
+  function touchRadius() { var v = viewSizeAtTarget(); return 0.15 * Math.min(v.w, v.h) * touchScale; }
+
+  function updateTouch(dt) {
+    // v0.7: 指を離していても、押してから最低 TAP_MIN 秒は刺激を与える（素早いタップの取りこぼし防止）
+    var held = touch.down && gesture === 'touch';
+    if (held || touch.minHold > 0) {
+      touch.minHold -= dt;
+      if (screenToPlane(touch.sx, touch.sy, camTarget, tmpV)) {
+        if (!touch.init) { touch.prev.copy(tmpV); touch.init = true; } else touch.prev.copy(touch.cur);
+        touch.cur.copy(tmpV);
+        if (touch.fresh) { touch.fresh = false; playRustle(countNear(touch.cur, touchRadius() * 1.2), touch.sx); }
+      }
+      touch.s += (1 - touch.s) * Math.min(1, dt * 20);
+      touch.grow = Math.min(1, touch.grow + dt / 0.6);
+    } else {
+      touch.s *= Math.exp(-dt / 0.17);   // 約0.2〜0.6秒で減衰
+      touch.prev.copy(touch.cur);
+    }
+    if (!touch.init || touch.s < 0.002) { engine.repulsors = emptyList; touchViz.visible = false; return; }
+    var g = touch.grow, R = touchRadius() * (0.7 + 0.3 * g * g * (3 - 2 * g));
+    rep.ax = touch.prev.x; rep.ay = touch.prev.y; rep.az = touch.prev.z;   // 指の軌跡を線分で補間
+    rep.bx = touch.cur.x; rep.by = touch.cur.y; rep.bz = touch.cur.z;
+    rep.fx = camFwd.x; rep.fy = camFwd.y; rep.fz = camFwd.z;
+    rep.R = R; rep.depth = R * 1.6; rep.s = touch.s;
+    engine.repulsors = repList;
+    if (showRadius) {
+      touchViz.visible = true;
+      touchViz.position.copy(touch.cur); touchViz.quaternion.copy(camera.quaternion);
+      touchViz.scale.set(R, R, R * 1.6);
+      touchViz.material.opacity = 0.45 * touch.s;
+    }
+  }
+
+  /* ---------------- 入力：障害物（v0.9）：海底に沿って水平に動かし、高さはスライダー ---------------- */
+  var selectedId = null, drag = null, nextKind = 'buoy';
+  var sphere = new THREE.Sphere(), hitV = new THREE.Vector3(), hplane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  function clampXZ(v) {   // 群れが泳ぐ範囲の内側（水平）に留める
+    var B = engine.params.bounds, e = Math.sqrt((v.x / B[0]) * (v.x / B[0]) + (v.z / B[2]) * (v.z / B[2]));
+    if (e > 0.85) { v.x *= 0.85 / e; v.z *= 0.85 / e; }
+    return v;
+  }
+  function rayToHorizontal(ray, y, out) {   // 視線と水平面 y の交点（遠すぎる交点は不採用）
+    hplane.constant = -y;
+    var p = ray.intersectPlane(hplane, out);
+    return p && p.distanceTo(ray.origin) < 90 ? p : null;
+  }
+  function findObstacle(id) { for (var i = 0; i < engine.obstacles.length; i++) if (engine.obstacles[i].id === id) return engine.obstacles[i]; return null; }
+  function pickObstacle(ray) {
+    var best = null, bestD = Infinity;
+    engine.obstacles.forEach(function (o) {
+      if (o.kind === 'buoy') {
+        sphere.center.set(o.x, o.y, o.z); sphere.radius = Math.max(o.radius * 1.15, 0.5);
+        if (ray.intersectSphere(sphere, hitV)) { var d = hitV.distanceTo(ray.origin); if (d < bestD) { bestD = d; best = { o: o, y: o.y }; } }
+      } else {   // 鉛直の柱：視線と柱の軸の最接近で判定
+        var d0 = ray.direction, ox = ray.origin.x - o.x, oz = ray.origin.z - o.z, a = d0.x * d0.x + d0.z * d0.z;
+        var t = a > 1e-6 ? Math.max(0, -(ox * d0.x + oz * d0.z) / a) : 0;
+        var py = ray.origin.y + d0.y * t, cy = Math.min(o.y1 + o.radius * 0.6, Math.max(o.y0, py));
+        var dist = Math.hypot(ray.origin.x + d0.x * t - o.x, py - cy, ray.origin.z + d0.z * t - o.z);
+        if (dist < o.radius * 1.25 + 0.3 && t < bestD) { bestD = t; best = { o: o, y: cy }; }
+      }
+    });
+    return best;
+  }
+  function obstacleDown(sx, sy) {
+    var ray = setRay(sx, sy), hit = pickObstacle(ray), ob, grabY;
+    if (hit) { ob = hit.o; grabY = hit.y; }
+    else {
+      if (engine.obstacles.length >= MAX_OBS) { toast('障害物は5個までです。削除してから追加してください'); return; }
+      var r = canvas.getBoundingClientRect(), u = (sx - r.left) / r.width, v = (sy - r.top) / r.height;
+      if (u < 0.08 || u > 0.92 || v < 0.1 || v > 0.86) { toast('画面の端には置けません。少し内側をタップしてください'); return; }
+      // 群れの高さの水平面に置く（届かなければ画面奥の面で代用）
+      var schoolY = Math.min(FLOOR_Y + 13, Math.max(FLOOR_Y + 2, camTarget.y));
+      if (!rayToHorizontal(ray, schoolY, tmpV) && !screenToPlane(sx, sy, camTarget, tmpV)) return;
+      clampXZ(tmpV);
+      var h = nextKind === 'buoy' ? schoolY - FLOOR_Y : Math.min(15, schoolY - FLOOR_Y + 2.5);
+      ob = engine.addObstacle({ kind: nextKind, x: tmpV.x, z: tmpV.z, radius: +obsSize.value, height: h });
+      grabY = schoolY;
+    }
+    selectedId = ob.id;
+    var p = rayToHorizontal(ray, grabY, new THREE.Vector3());
+    drag = { ob: ob, y: grabY, ox: p ? ob.x - p.x : 0, oz: p ? ob.z - p.z : 0 };
+    updateObsUI();
+  }
+  function obstacleMove(sx, sy) {
+    if (!drag || !findObstacle(drag.ob.id)) { drag = null; return; }
+    if (!rayToHorizontal(setRay(sx, sy), drag.y, tmpV)) return;
+    tmpV.x += drag.ox; tmpV.z += drag.oz;
+    clampXZ(tmpV);
+    drag.ob.tx = tmpV.x; drag.ob.tz = tmpV.z;
+  }
+
+  /* ---------------- 入力：餌やり（v0.10） ---------------- */
+  var touchTool = 'touch', feedLast = { x: 0, y: 0 };
+  function scatterFood(sx, sy, count) {
+    if (!screenToPlane(sx, sy, camTarget, tmpV)) return;
+    var before = engine.foodN;
+    engine.addFood(tmpV.x, tmpV.y, tmpV.z, count, count > 10 ? 0.8 : 0.4);
+    if (engine.foodN === before) { toast('餌がいっぱいです。食べ終わるまで少し待ってください'); return; }
+    playFeed(count, sx);
+  }
+
+  /* ---------------- Pointer Events ---------------- */
+  function pdist() { var a = Array.from(pointers.values()); return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1; }
+  function pmid() { var a = Array.from(pointers.values()); return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 }; }
+  function endSingle() { touch.down = false; drag = null; look = null; }
+  function releaseAll() { pointers.clear(); endSingle(); pinch = null; gesture = 'none'; }
+
+  canvas.addEventListener('pointerdown', function (e) {
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+    dismissGuide();
+    fadeHint();
+    startAudio();
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) { endSingle(); gesture = 'pinch'; var m0 = pmid(); pinch = { d0: pdist(), z0: zoom, mx: m0.x, my: m0.y, yaw0: userYaw, pitch0: userPitch }; return; }
+    if (pointers.size > 2 || gesture === 'pinch' || gesture === 'wait') return;
+    if (e.button === 2 || mode === 'watch') {   // 右ドラッグ（PC）または観察モードで視点を回す
+      gesture = 'look'; look = { sx: e.clientX, sy: e.clientY, yaw0: userYaw, pitch0: userPitch, moved: e.button === 2 };
+      return;
+    }
+    if (mode === 'touch' && touchTool === 'feed') {   // 餌やり：タップした場所に餌をまく
+      gesture = 'feed'; feedLast.x = e.clientX; feedLast.y = e.clientY;
+      scatterFood(e.clientX, e.clientY, 28);
+      return;
+    }
+    if (mode === 'touch') {
+      gesture = 'touch'; touch.down = true; touch.sx = e.clientX; touch.sy = e.clientY; touch.grow = 0;
+      touch.fresh = true; touch.nx = e.clientX; touch.ny = e.clientY; touch.nt = performance.now(); touch.minHold = TAP_MIN;
+      playTouch(e.clientX, e.clientY, false);
+      if (touch.s < 0.05) touch.init = false;
+    } else if (mode === 'obstacle') {
+      gesture = 'obstacle'; obstacleDown(e.clientX, e.clientY);
+    }
+  });
+  canvas.addEventListener('pointermove', function (e) {
+    var p = pointers.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    if (gesture === 'pinch' && pointers.size >= 2 && pinch) {
+      zoom = Math.min(2.4, Math.max(0.45, pinch.z0 * pinch.d0 / pdist()));
+      var mm = pmid();   // 2本指をそろえて動かすと視点が回る
+      userYaw = pinch.yaw0 - (mm.x - pinch.mx) * ORBIT_K;
+      userPitch = clampPitch(pinch.pitch0 + (mm.y - pinch.my) * ORBIT_K);
+    } else if (gesture === 'look' && look) {
+      var dx = e.clientX - look.sx, dy = e.clientY - look.sy;
+      if (!look.moved && dx * dx + dy * dy > 64) look.moved = true;
+      if (look.moved) { userYaw = look.yaw0 - dx * ORBIT_K; userPitch = clampPitch(look.pitch0 + dy * ORBIT_K); }
+    } else if (gesture === 'feed') {   // なぞると帯状にまく
+      if (Math.hypot(e.clientX - feedLast.x, e.clientY - feedLast.y) > 34) { feedLast.x = e.clientX; feedLast.y = e.clientY; scatterFood(e.clientX, e.clientY, 8); }
+    } else if (gesture === 'touch') {
+      touch.sx = e.clientX; touch.sy = e.clientY;
+      var nowT = performance.now();   // なぞると一定距離ごとに小さく鳴る
+      if (Math.hypot(e.clientX - touch.nx, e.clientY - touch.ny) > 70 && nowT - touch.nt > 150) {
+        touch.nx = e.clientX; touch.ny = e.clientY; touch.nt = nowT; touch.fresh = true;
+        playTouch(e.clientX, e.clientY, true);
+      }
+    }
+    else if (gesture === 'obstacle') obstacleMove(e.clientX, e.clientY);
+  });
+  function pointerEnd(e) {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.delete(e.pointerId);
+    if (gesture === 'pinch') { gesture = pointers.size ? 'wait' : 'none'; pinch = null; return; }
+    if (gesture === 'wait') { if (!pointers.size) gesture = 'none'; return; }
+    if (gesture === 'look' && look && !look.moved && e.type === 'pointerup' && mode === 'watch') toggleTagAt(look.sx, look.sy);
+    endSingle();
+    if (!pointers.size) gesture = 'none';
+  }
+  canvas.addEventListener('pointerup', pointerEnd);
+  canvas.addEventListener('pointercancel', pointerEnd);
+  canvas.addEventListener('lostpointercapture', pointerEnd);
+  canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  canvas.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    zoom = Math.min(2.4, Math.max(0.45, zoom * Math.exp(e.deltaY * 0.0012)));
+  }, { passive: false });
+  window.addEventListener('blur', releaseAll);
+  document.addEventListener('visibilitychange', function () {
+    releaseAll();
+    lastFrame = performance.now(); acc = 0;
+    if (audio) { if (document.hidden) audio.ctx.suspend(); else audio.ctx.resume(); }
+  });
+
+  function resize() {
+    W = Math.max(1, window.innerWidth); H = Math.max(1, window.innerHeight);
+    renderer.setSize(W, H, false);
+    camera.aspect = W / H; camera.updateProjectionMatrix();
+    releaseAll();
+  }
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 200); });
+  resize();
+
+  /* ---------------- UI ---------------- */
+  var $ = function (id) { return document.getElementById(id); };
+  var obsPanel = $('obsPanel'), obsSize = $('obsSize'), obsHeight = $('obsHeight'), obsCount = $('obsCount'), tagPanel = $('tagPanel'), touchTools = $('touchTools');
+  var kindBtns = Array.from(document.querySelectorAll('#obsKind button'));
+  var modeBtns = { touch: $('modeTouch'), obstacle: $('modeObstacle'), watch: $('modeWatch') };
+  var showRadius = false;
+
+  function setMode(m) {
+    mode = m; releaseAll();
+    Object.keys(modeBtns).forEach(function (k) { modeBtns[k].setAttribute('aria-pressed', String(k === m)); });
+    obsPanel.hidden = m !== 'obstacle';
+    touchTools.hidden = m !== 'touch';
+    tagPanel.hidden = m !== 'watch';
+    updateObsUI();
+    showHint(m === 'touch' && touchTool === 'feed' ? 'feed' : m);
+  }
+  Object.keys(modeBtns).forEach(function (k) { modeBtns[k].addEventListener('click', function () { setMode(k); }); });
+
+  function updateObsUI() {
+    var n = engine.obstacles.length, sel = findObstacle(selectedId);
+    if (!sel) selectedId = null;
+    obsCount.textContent = n + '/' + MAX_OBS;
+    $('obsSliders').hidden = !sel;
+    $('btnObsDelete').disabled = !sel;
+    $('btnObsClear').disabled = n === 0;
+    obsHeight.disabled = !sel;
+    if (sel) { obsSize.value = sel.targetRadius; obsHeight.value = sel.targetHeight; }
+    $('obsHeightVal').textContent = sel ? (sel.targetHeight / 2).toFixed(1) + ' m' : '';
+    kindBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.k === nextKind)); });
+  }
+  // 触れるモードの道具：手（触れる）／餌
+  var toolBtns = Array.from(document.querySelectorAll('#touchTool button'));
+  toolBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      touchTool = b.dataset.t; releaseAll();
+      toolBtns.forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+      showHint(touchTool === 'feed' ? 'feed' : 'touch');
+    });
+  });
+  // 種類：次に置くものを選ぶだけ（置いてあるものは変えない）
+  kindBtns.forEach(function (b) { b.addEventListener('click', function () { nextKind = b.dataset.k; updateObsUI(); }); });
+  obsSize.addEventListener('input', function () { var o = findObstacle(selectedId); if (o) o.targetRadius = +obsSize.value; });
+  obsHeight.addEventListener('input', function () {
+    var o = findObstacle(selectedId);
+    if (o) { o.targetHeight = +obsHeight.value; $('obsHeightVal').textContent = (o.targetHeight / 2).toFixed(1) + ' m'; }
+  });
+  $('btnObsDelete').addEventListener('click', function () { if (selectedId) { engine.removeObstacle(selectedId); selectedId = null; drag = null; updateObsUI(); } });
+  $('btnObsClear').addEventListener('click', function () { engine.obstacles.length = 0; selectedId = null; drag = null; updateObsUI(); toast('障害物を消去しました'); });
+
+  var toastEl = $('toast'), toastTimer = 0;
+  function toast(msg) {
+    toastEl.textContent = msg; toastEl.hidden = false; toastEl.style.opacity = '1';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.style.opacity = '0'; setTimeout(function () { toastEl.hidden = true; }, 320); }, 2200);
+  }
+
+  // 初回ガイド
+  var guide = $('guide'), guideOpen = false;
+  function showGuide() { guide.hidden = false; guide.classList.remove('fade'); guideOpen = true; }
+  function dismissGuide() {
+    if (!guideOpen) return;
+    guideOpen = false; guide.classList.add('fade'); store.set('guideSeen', true);
+    setTimeout(function () { if (!guideOpen) guide.hidden = true; }, 520);
+  }
+  if (!store.get('guideSeen', false)) showGuide();
+
+  // モード別のひとことヒント（v0.2 / 試作Bを参考）。数秒で消え、触れると即座に消える
+  var hintEl = $('hint'), hintTimer = 0;
+  var HINTS = {
+    obstacle: '空いている場所をタップして置く。ドラッグで水平に移動',
+    feed: 'タップした場所に餌をまきます。なぞると帯状にまけます',
+    touch: '指で触れると、そこから逃げる動きが群れに広がります',
+    watch: 'タップで魚に色を付けられます。ドラッグで視点を回せます'
+  };
+  function showHint(m) {
+    clearTimeout(hintTimer);
+    if (!HINTS[m] || guideOpen) { fadeHint(); return; }
+    hintEl.textContent = HINTS[m]; hintEl.hidden = false; hintEl.classList.remove('fade');
+    hintTimer = setTimeout(fadeHint, 5000);
+  }
+  function fadeHint() { hintEl.classList.add('fade'); }
+  if (!guideOpen) showHint('touch');
+
+  // 設定シート
+  var sheet = $('sheet'), backdrop = $('backdrop');
+  function openSheet(o) { sheet.hidden = !o; backdrop.hidden = !o; if (o) releaseAll(); }
+  $('btnSettings').addEventListener('click', function () { openSheet(true); });
+  $('btnClose').addEventListener('click', function () { openSheet(false); });
+  backdrop.addEventListener('click', function () { openSheet(false); });
+  // キーボード操作（v0.2 / 試作Bを参考）：Space 一時停止、1/2/3 モード、Esc 閉じる
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { openSheet(false); return; }
+    var tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || !sheet.hidden || e.repeat) return;
+    if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+    else if (e.key === '1') setMode('touch');
+    else if (e.key === '2') setMode('obstacle');
+    else if (e.key === '3') setMode('watch');
+  });
+  document.addEventListener('keyup', function (e) { if (e.code === 'Space' && e.target && e.target.tagName === 'BUTTON') e.preventDefault(); });
+
+  // 一時停止（v0.2 / 試作Bを参考）。停止中も障害物の配置・移動とズームはできる
+  var btnPause = $('btnPause'), pausedChip = $('pausedChip');
+  var ICON_PAUSE = '<path d="M9 6v12M15 6v12"/>', ICON_PLAY = '<path d="M8 5.5v13l10.5-6.5z"/>';
+  function togglePause(force) {
+    paused = typeof force === 'boolean' ? force : !paused;
+    releaseAll();
+    pausedChip.hidden = !paused;
+    btnPause.setAttribute('aria-label', paused ? '再開' : '一時停止');
+    btnPause.setAttribute('aria-pressed', String(paused));
+    $('pauseIcon').innerHTML = paused ? ICON_PLAY : ICON_PAUSE;
+  }
+  btnPause.addEventListener('click', function () { togglePause(); });
+
+  var optGrowth = $('optGrowth'), optSound = $('optSound'), optDebug = $('optDebug');
+  optGrowth.checked = settings.growth; optSound.checked = settings.sound; optDebug.checked = settings.debug;
+  optGrowth.addEventListener('change', function () { settings.growth = optGrowth.checked; saveSettings(); restart(); toast(settings.growth ? '成長モード：12匹から始まります' : '100匹で始めます'); });
+  optSound.addEventListener('change', function () { settings.sound = optSound.checked; saveSettings(); setSound(settings.sound); });
+  var optTouchSfx = $('optTouchSfx');
+  optTouchSfx.checked = settings.touchSfx;
+  optTouchSfx.addEventListener('change', function () { settings.touchSfx = optTouchSfx.checked; saveSettings(); if (settings.touchSfx) previewTouch(); });
+  var optVolume = $('optVolume'), volOut = $('volOut');
+  optVolume.value = settings.volume; volOut.textContent = settings.volume;
+  optVolume.addEventListener('input', function () {
+    settings.volume = +optVolume.value; volOut.textContent = settings.volume;
+    if (audio) audio.master.gain.setTargetAtTime(volGain(), audio.ctx.currentTime, 0.05);
+  });
+  optVolume.addEventListener('change', function () { saveSettings(); if (settings.touchSfx) previewTouch(); else startAudio(); });
+  optDebug.addEventListener('change', function () { settings.debug = optDebug.checked; saveSettings(); $('debug').hidden = !settings.debug; if (!settings.debug) { showRadius = false; $('chkRadius').checked = false; } });
+  $('debug').hidden = !settings.debug;
+
+  var qBtns = Array.from(document.querySelectorAll('#optQuality button'));
+  function applyQuality() {
+    qBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.q === settings.quality)); });
+    pixelRatio = basePR(); renderer.setPixelRatio(pixelRatio); resize();
+    engine.maxCount = qualityCap();
+  }
+  qBtns.forEach(function (b) { b.addEventListener('click', function () { settings.quality = b.dataset.q; saveSettings(); applyQuality(); }); });
+  qBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.q === settings.quality)); });
+
+  $('btnResetView').addEventListener('click', function () { zoom = 1; userYaw = 0; userPitch = 0.24; camTarget.fromArray(engine.centroid); openSheet(false); });
+  $('btnGuide').addEventListener('click', function () { openSheet(false); showGuide(); });
+  $('btnRestart').addEventListener('click', function () { restart(); openSheet(false); });
+
+  function restart(seed) {
+    releaseAll();
+    engine.growthEnabled = settings.growth;
+    engine.maxCount = qualityCap();
+    engine.reset(seed != null ? seed : (Math.random() * 0x7fffffff) >>> 0);
+    selectedId = null; renderedN = 0;
+    camTarget.fromArray(engine.centroid); spreadSm = engine.spread;
+    touch.s = 0; touch.init = false;
+    clearTags();
+    togglePause(false);
+    updateObsUI();
+  }
+
+  // 開発者表示：係数スライダー
+  var DBG = [
+    ['wSep', '分離', 0, 6, 0.1, '近すぎる仲間（約30cm以内）から離れる力。上げると間隔が広がり、下げると密集して重なりやすくなる。'],
+    ['wAli', '整列', 0, 4, 0.1, '周りの仲間（約70cm以内）と向きをそろえる力。上げると一方向にそろって流れ、下げると向きがばらけて渦や乱れが出る。'],
+    ['wCoh', '結合', 0, 3, 0.05, '周りの仲間（約1.4m以内）の中心へ寄る力。上げると丸くまとまり、分かれても戻りやすい。下げると広がって分裂しやすい。'],
+    ['noise', 'ノイズ', 0, 0.6, 0.01, '向きに毎回加える小さな揺らぎ。上げるとふらつきが増え、高すぎると群れの秩序が崩れる。0だと機械的にそろう。'],
+    ['wTouch', '忌避', 0, 16, 0.5, '指から逃げる力の強さ。上げると大きく素早く逃げ、下げるとわずかに避けるだけになる。'],
+    ['alarm', '警戒伝達', 0, 8, 0.1, '驚いた仲間の緊張が隣へうつる速さ。上げると波が速く遠くまで広がり、0だと触れた魚だけが反応する。'],
+    ['wObs', '障害物', 0, 20, 0.5, '障害物や岩をよける力。上げると手前から大きく迂回し、下げるとすれすれを通る。'],
+    ['_touchScale', '指の半径', 0.5, 2, 0.05, '触れたときに影響する範囲の倍率。1.0で画面の短い辺の約15%。長押しすると少しずつ広がる。'],
+    ['cruise', '遊泳速度', 0.8, 3.5, 0.05, 'ふだん泳ぐ速さ。2.0で秒速約1m（体長の約6倍）。驚いたときの最高速度は変わらない。']
+  ];
+  var sliderBox = $('dbgSliders');
+  DBG.forEach(function (d) {
+    var row = document.createElement('div'); row.className = 'dbg-slider';
+    var cur = d[0] === '_touchScale' ? touchScale : engine.params[d[0]];
+    var id = 'dbg_' + d[0].replace('_', '');
+    row.innerHTML = '<label for="' + id + '">' + d[1] + '</label><input type="range" id="' + id + '" min="' + d[2] + '" max="' + d[3] + '" step="' + d[4] + '" value="' + cur + '"><span>' + (+cur).toFixed(2) + '</span>';
+    var input = row.querySelector('input'), out = row.querySelector('span');
+    input.addEventListener('input', function () {
+      var v = +input.value; out.textContent = v.toFixed(2);
+      if (d[0] === '_touchScale') touchScale = v; else engine.params[d[0]] = v;
+    });
+    sliderBox.appendChild(row);
+    var desc = document.createElement('p'); desc.className = 'dbg-desc'; desc.hidden = true; desc.textContent = d[5];
+    sliderBox.appendChild(desc);
+  });
+  $('chkRadius').addEventListener('change', function (e) { showRadius = e.target.checked; });
+  var showDesc = false;
+  $('chkDesc').addEventListener('change', function (e) {
+    showDesc = e.target.checked;
+    Array.prototype.forEach.call(document.querySelectorAll('.dbg-desc'), function (p) { p.hidden = !showDesc; });
+  });
+  $('btnDbgReset').addEventListener('click', function () {
+    DBG.forEach(function (d) {
+      var v = d[0] === '_touchScale' ? 1 : FLOCK.SARDINE[d[0]];
+      if (d[0] === '_touchScale') touchScale = v; else engine.params[d[0]] = v;
+      var inp = $('dbg_' + d[0].replace('_', '')); inp.value = v; inp.nextElementSibling.textContent = (+v).toFixed(2);
+    });
+    toast('係数を既定値に戻しました');
+  });
+
+  [['optSeabed', 'seabed'], ['optRocks', 'rocks'], ['optRange', 'range'], ['optScale', 'scalebar']].forEach(function (p) {
+    var el = $(p[0]); el.checked = !!settings[p[1]];
+    el.addEventListener('change', function () { settings[p[1]] = el.checked; saveSettings(); applyLandmarks(); });
+  });
+  applyLandmarks();
+
+  /* ---------------- 色付け（v0.3）：観察モードでタップした魚に色を付ける ---------------- */
+  var TAG_COLORS = ['#ff6b4a', '#ffd23f', '#ff5fae', '#9cff57', '#b48cff'], TAG_NAMES = ['コーラル', 'イエロー', 'ピンク', 'ライム', 'バイオレット'];
+  var TAG_MAX = 8, tags = new Map(), tagColorIdx = 0, projV = new THREE.Vector3(), tmpC = new THREE.Color();
+  var swatchBox = $('swatches');
+  TAG_COLORS.forEach(function (hex, k) {
+    var b = document.createElement('button');
+    b.className = 'swatch'; b.type = 'button'; b.style.background = hex;
+    b.setAttribute('role', 'radio'); b.setAttribute('aria-label', TAG_NAMES[k]);
+    b.addEventListener('click', function () { tagColorIdx = k; updateTagUI(); });
+    swatchBox.appendChild(b);
+  });
+  function setTag(i, ci) {
+    var ic = fish.instanceColor.array, ma = markAttr.array, o = i * 3;
+    if (ci < 0) {
+      tags.delete(i);
+      ic[o] = baseCol[o]; ic[o + 1] = baseCol[o + 1]; ic[o + 2] = baseCol[o + 2];
+      ma[o] = ma[o + 1] = ma[o + 2] = 0;
+    } else {
+      tags.set(i, ci); tmpC.set(TAG_COLORS[ci]);
+      ic[o] = tmpC.r; ic[o + 1] = tmpC.g; ic[o + 2] = tmpC.b;
+      ma[o] = tmpC.r; ma[o + 1] = tmpC.g; ma[o + 2] = tmpC.b;
+    }
+    fish.instanceColor.needsUpdate = true; markAttr.needsUpdate = true;
+  }
+  function pickFish(sx, sy) {   // 画面上で指に最も近い魚（34px以内）
+    var r = canvas.getBoundingClientRect(), best = -1, bestD = 34 * 34;
+    for (var i = 0; i < engine.n; i++) {
+      projV.set(engine.px[i], engine.py[i], engine.pz[i]).project(camera);
+      if (projV.z > 1) continue;
+      var x = (projV.x * 0.5 + 0.5) * r.width + r.left - sx, y = (-projV.y * 0.5 + 0.5) * r.height + r.top - sy;
+      if (x * x + y * y < bestD) { bestD = x * x + y * y; best = i; }
+    }
+    return best;
+  }
+  function addTag(i) { setTag(i, tagColorIdx); tagColorIdx = (tagColorIdx + 1) % TAG_COLORS.length; }
+  function toggleTagAt(sx, sy) {
+    var i = pickFish(sx, sy);
+    if (i < 0) return;
+    if (tags.has(i)) setTag(i, -1);
+    else if (tags.size >= TAG_MAX) toast('色を付けられるのは8匹までです。付いている魚をタップすると外せます');
+    else addTag(i);
+    updateTagUI();
+  }
+  function clearTags() { Array.from(tags.keys()).forEach(function (i) { setTag(i, -1); }); updateTagUI(); }
+  function updateTagUI() {
+    $('tagCount').textContent = tags.size + '/' + TAG_MAX;
+    $('btnTagClear').disabled = tags.size === 0;
+    $('btnTagRandom').disabled = tags.size >= TAG_MAX;
+    Array.prototype.forEach.call(swatchBox.children, function (b, k) { b.setAttribute('aria-checked', String(k === tagColorIdx)); });
+  }
+  $('btnTagRandom').addEventListener('click', function () {
+    var pool = [];
+    for (var i = 0; i < engine.n; i++) if (engine.flock[i] === 0 && !tags.has(i)) pool.push(i);
+    for (var k = 0; k < 3 && pool.length && tags.size < TAG_MAX; k++) addTag(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    updateTagUI();
+  });
+  $('btnTagClear').addEventListener('click', clearTags);
+  updateTagUI();
+  $('btnSeed').addEventListener('click', function () {
+    var v = parseInt($('seedInput').value, 10);
+    if (!isFinite(v)) v = engine.seed;
+    restart(v >>> 0);
+    toast('シード ' + (v >>> 0) + ' で再開しました');
+  });
+
+  /* ---------------- サウンド（v0.6）：すべて Web Audio で合成（音声ファイルなし） ----------------
+   * 環境音：低いうねり ＋ 寄せては返す水の揺らぎ ＋ ときどき立ちのぼる泡
+   * タッチ音：水滴（v0.7 で水琴窟を廃止。音程はランダム）。オン／オフのみ
+   *           群れの近くに触れたときだけ、逃げる魚の「ザッ」という水音を重ねる */
+  var audio = null;
+  var lastRustle = 0;
+  function volGain() { var v = settings.volume / 100; return v * v; }
+  function makeNoise(ctx, sec, brown) {
+    var len = Math.floor(ctx.sampleRate * sec), buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0), last = 0;
+    for (var i = 0; i < len; i++) {
+      var w = Math.random() * 2 - 1;
+      if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.2; } else d[i] = w;
+    }
+    return buf;
+  }
+  function makeImpulse(ctx, sec, decay) {   // 水中らしい、こもった長めの残響
+    var len = Math.floor(ctx.sampleRate * sec), buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (var c = 0; c < 2; c++) {
+      var d = buf.getChannelData(c), lp = 0;
+      for (var i = 0; i < len; i++) { lp += ((Math.random() * 2 - 1) - lp) * 0.35; d[i] = lp * Math.pow(1 - i / len, decay); }
+    }
+    return buf;
+  }
+  function loopSrc(ctx, buf) { var s = ctx.createBufferSource(); s.buffer = buf; s.loop = true; s.start(0, Math.random() * buf.duration); return s; }
+  function lfo(ctx, freq, depth, target) { var o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = freq; g.gain.value = depth; o.connect(g); g.connect(target); o.start(); }
+  function panner(ctx, pan) { if (!ctx.createStereoPanner) return ctx.createGain(); var p = ctx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan)); return p; }
+
+  function startAudio() {
+    if (audio) { if (audio.ctx.state === 'suspended') audio.ctx.resume(); return; }
+    if (!settings.sound && !settings.touchSfx) return;
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      var ctx = new Ctx();
+      var master = ctx.createGain(); master.gain.value = volGain(); master.connect(ctx.destination);
+      var comp = ctx.createDynamicsCompressor(); comp.threshold.value = -10; comp.ratio.value = 3; comp.connect(master);
+      var verb = ctx.createConvolver(); verb.buffer = makeImpulse(ctx, 2.2, 2.4);
+      var wet = ctx.createGain(); wet.gain.value = 0.6; verb.connect(wet); wet.connect(comp);
+      var dry = ctx.createGain(); dry.connect(comp);
+      var amb = ctx.createGain(); amb.gain.value = 0; amb.connect(dry);
+      var ambSend = ctx.createGain(); ambSend.gain.value = 0.25; amb.connect(ambSend); ambSend.connect(verb);
+      // 1) 低いうねり（イヤホンで感じる深さ）
+      var rl = ctx.createBiquadFilter(); rl.type = 'lowpass'; rl.frequency.value = 300;
+      var rg = ctx.createGain(); rg.gain.value = 0.2;
+      loopSrc(ctx, makeNoise(ctx, 5, true)).connect(rl); rl.connect(rg); rg.connect(amb);
+      lfo(ctx, 0.06, 110, rl.frequency);
+      // 2) 寄せては返す水の揺らぎ（スマホのスピーカーでも聞こえる帯域）
+      var white = makeNoise(ctx, 4, false);
+      var wb = ctx.createBiquadFilter(); wb.type = 'bandpass'; wb.frequency.value = 650; wb.Q.value = 0.7;
+      var wl = ctx.createBiquadFilter(); wl.type = 'lowpass'; wl.frequency.value = 2200;
+      var wg = ctx.createGain(); wg.gain.value = 0.12;
+      loopSrc(ctx, white).connect(wb); wb.connect(wl); wl.connect(wg); wg.connect(amb);
+      lfo(ctx, 0.071, 0.065, wg.gain); lfo(ctx, 0.113, 0.04, wg.gain);   // 周期の違う2つで不規則なうねり
+      lfo(ctx, 0.053, 260, wb.frequency);
+      audio = { ctx: ctx, master: master, dry: dry, verb: verb, amb: amb, white: white };
+      if (settings.sound) amb.gain.setTargetAtTime(1, ctx.currentTime, 1.5);
+      setTimeout(bubbleLoop, 1500);
+    } catch (e) { audio = null; }
+  }
+
+  // 短い正弦波を指数的に上昇させる＝泡がはじける音（ミナールト共鳴の簡易モデル）
+  function blip(t, f0, rise, dur, amp, pan, out, send) {
+    var ctx = audio.ctx, o = ctx.createOscillator(), g = ctx.createGain(), p = panner(ctx, pan);
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * rise, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(amp, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(p); p.connect(out);
+    if (send) { var s = ctx.createGain(); s.gain.value = send; p.connect(s); s.connect(audio.verb); }
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  function bubbleLoop() {
+    if (!audio) return;
+    if (settings.sound && !document.hidden && audio.ctx.state === 'running') {
+      var t = audio.ctx.currentTime + 0.05, n = 1 + Math.floor(Math.random() * 4), pan = Math.random() * 1.6 - 0.8;
+      for (var k = 0; k < n; k++) {
+        t += 0.04 + Math.random() * 0.14;
+        blip(t, 380 + Math.random() * 700, 2.0 + Math.random() * 0.8, 0.05 + Math.random() * 0.07, 0.035 + Math.random() * 0.04, pan + (Math.random() - 0.5) * 0.3, audio.amb, 0);
+      }
+    }
+    setTimeout(bubbleLoop, 1800 + Math.random() * 4500);
+  }
+  function playTouch(sx, sy, soft) {
+    if (!audio || !settings.touchSfx || paused) return;
+    var ctx = audio.ctx, t = ctx.currentTime + 0.01, r = canvas.getBoundingClientRect();
+    var pan = ((sx - r.left) / r.width - 0.5) * 1.2, k = soft ? 0.55 : 1;
+    // 水滴：音程は毎回ランダム（約450〜1100Hzから上昇）。v0.6より約5dB小さく
+    blip(t, 450 + Math.random() * 650, 2.4 + Math.random() * 0.4, 0.08 + Math.random() * 0.03, 0.4 * k, pan, audio.dry, 0.5);
+  }
+  function playRustle(count, sx) {   // v0.10: 群れが向きを変えたときの、水が動くやわらかい音（低めの「ふわっ」＋小さな泡）
+    if (!audio || !settings.touchSfx || count < 3) return;
+    var now = performance.now();
+    if (now - lastRustle < 450) return;
+    lastRustle = now;
+    var ctx = audio.ctx, t = ctx.currentTime + 0.03, a = Math.min(1, count / 40) * 0.32;
+    var r = canvas.getBoundingClientRect(), pan = ((sx - r.left) / r.width - 0.5) * 1.2, p = panner(ctx, pan);
+    var src = ctx.createBufferSource(); src.buffer = audio.white;
+    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.2;
+    lp.frequency.setValueAtTime(220, t); lp.frequency.linearRampToValueAtTime(820, t + 0.2); lp.frequency.exponentialRampToValueAtTime(260, t + 1.0);
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(a, t + 0.18); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.05);
+    var s = ctx.createGain(); s.gain.value = 0.35;
+    src.connect(lp); lp.connect(g); g.connect(p); p.connect(audio.dry); p.connect(s); s.connect(audio.verb);
+    src.start(t, Math.random() * 3); src.stop(t + 1.1);
+    var nb = 1 + Math.floor(Math.random() * 3);
+    for (var k = 0; k < nb; k++) blip(t + 0.08 + Math.random() * 0.4, 500 + Math.random() * 700, 2.0 + Math.random() * 0.6, 0.05 + Math.random() * 0.05, 0.035, pan + (Math.random() - 0.5) * 0.4, audio.dry, 0.3);
+  }
+  function playFeed(count, sx) {   // 餌粒が水に落ちる小さな「ぽつぽつ」
+    if (!audio || !settings.touchSfx || paused) return;
+    var ctx = audio.ctx, t = ctx.currentTime + 0.01, r = canvas.getBoundingClientRect(), pan = ((sx - r.left) / r.width - 0.5) * 1.2;
+    var n = Math.min(7, 2 + Math.round(count / 5));
+    for (var k = 0; k < n; k++) blip(t + k * 0.035 + Math.random() * 0.05, 1300 + Math.random() * 1300, 1.8, 0.025 + Math.random() * 0.02, 0.05, pan + (Math.random() - 0.5) * 0.5, audio.dry, 0.35);
+  }
+  function countNear(c, R) {
+    var n = 0, R2 = R * R;
+    for (var i = 0; i < engine.n; i++) {
+      var dx = engine.px[i] - c.x, dy = engine.py[i] - c.y, dz = engine.pz[i] - c.z;
+      if (dx * dx + dy * dy + dz * dz < R2) n++;
+    }
+    return n;
+  }
+  function setSound(on) {
+    if (on) { startAudio(); if (audio) audio.amb.gain.setTargetAtTime(1, audio.ctx.currentTime, 0.6); }
+    else if (audio) audio.amb.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.2);
+  }
+  function previewTouch() {   // 設定で選んだ音を試聴（画面中央付近で鳴らす）
+    startAudio();
+    if (!audio) return;
+    var r = canvas.getBoundingClientRect();
+    setTimeout(function () { playTouch(r.left + r.width / 2, r.top + r.height * (0.3 + Math.random() * 0.4), false); }, 60);
+  }
+
+  /* ---------------- 魚のインスタンス更新 ---------------- */
+  function updateFish(alpha, dt) {
+    var n = engine.n, m = fish.instanceMatrix.array, P = engine.params;
+    var px = engine.px, py = engine.py, pz = engine.pz, ppx = engine.ppx, ppy = engine.ppy, ppz = engine.ppz;
+    var vx = engine.vx, vy = engine.vy, vz = engine.vz, ph = phaseAttr.array, am = ampAttr.array, fl = flashAttr.array;
+    var kH = 1 - Math.exp(-dt * 12), kR = 1 - Math.exp(-dt * 5), invDt = dt > 1e-4 ? 1 / dt : 0;
+    for (var i = 0; i < n; i++) {
+      var sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]) || 1;
+      var tx = vx[i] / sp, ty = vy[i] / sp, tz = vz[i] / sp, o3 = i * 3;
+      if (i >= renderedN) { rh[o3] = tx; rh[o3 + 1] = ty; rh[o3 + 2] = tz; roll[i] = 0; }
+      var hx0 = rh[o3], hz0 = rh[o3 + 2];
+      var hx = hx0 + (tx - hx0) * kH, hy = rh[o3 + 1] + (ty - rh[o3 + 1]) * kH, hz = hz0 + (tz - hz0) * kH;
+      var hl = Math.sqrt(hx * hx + hy * hy + hz * hz) || 1; hx /= hl; hy /= hl; hz /= hl;
+      // 旋回方向へバンク（群れの回転で反射が揃って変化する）
+      var yawRate = (hz0 * hx - hx0 * hz) * invDt;
+      var rt = Math.max(-0.75, Math.min(0.75, yawRate * 0.28));
+      roll[i] += (rt - roll[i]) * kR;
+      rh[o3] = hx; rh[o3 + 1] = hy; rh[o3 + 2] = hz;
+      // 基底：z = 進行方向
+      var xx = hz, xy = 0, xz = -hx, xl = Math.sqrt(xx * xx + xz * xz);
+      if (xl < 1e-4) { xx = 1; xz = 0; xl = 1; }
+      xx /= xl; xz /= xl;
+      var yx = hy * xz - hz * xy, yy = hz * xx - hx * xz, yz = hx * xy - hy * xx;
+      var cr = Math.cos(roll[i]), sr = Math.sin(roll[i]);
+      var Xx = xx * cr + yx * sr, Xy = xy * cr + yy * sr, Xz = xz * cr + yz * sr;
+      var Yx = yx * cr - xx * sr, Yy = yy * cr - xy * sr, Yz = yz * cr - xz * sr;
+      var s = P.bodyLen * engine.size[i], o = i * 16;
+      m[o] = Xx * s; m[o + 1] = Xy * s; m[o + 2] = Xz * s; m[o + 3] = 0;
+      m[o + 4] = Yx * s; m[o + 5] = Yy * s; m[o + 6] = Yz * s; m[o + 7] = 0;
+      m[o + 8] = hx * s; m[o + 9] = hy * s; m[o + 10] = hz * s; m[o + 11] = 0;
+      m[o + 12] = ppx[i] + (px[i] - ppx[i]) * alpha;
+      m[o + 13] = ppy[i] + (py[i] - ppy[i]) * alpha;
+      m[o + 14] = ppz[i] + (pz[i] - ppz[i]) * alpha;
+      m[o + 15] = 1;
+      ph[i] = engine.phase[i];
+      am[i] = 0.75 + Math.min(0.9, engine.stress[i] * 0.9 + (sp - P.cruise) * 0.08);
+      fl[i] = Math.min(0.3, Math.max(0, engine.stress[i] - 0.15) * 0.45 + Math.abs(roll[i]) * 0.12 + engine.feed[i] * 0.08);
+    }
+    renderedN = n;
+    fish.count = n;
+    fish.instanceMatrix.needsUpdate = true;
+    phaseAttr.needsUpdate = true; ampAttr.needsUpdate = true; flashAttr.needsUpdate = true;
+  }
+
+  /* ---------------- 指標表示・自動画質 ---------------- */
+  var countEl = $('count'), arrivingEl = $('arriving');
+  var fpsFrames = 0, fpsT = 0, fps = 60, simMs = 0, metricT = 0, qualityT = 0, shownCount = -1;
+  var sbW = -1, sbBar = $('scalebarBar'), sbLabel = $('scalebarLabel'), SB_STEPS = [0.5, 1, 2, 5, 10, 20];
+  function updateHud(dt) {
+    if (engine.joined !== shownCount) { shownCount = engine.joined; countEl.textContent = shownCount; }
+    var arriving = engine.n - engine.joined;
+    if (settings.scalebar) {   // 群れの中心の奥行きでの長さ（1ワールド単位 = 0.5m）
+      var pxM = H / (2 * camDist * tanHalf) * 2, m = 20;
+      for (var q = 0; q < SB_STEPS.length; q++) if (pxM * SB_STEPS[q] >= 44) { m = SB_STEPS[q]; break; }
+      var w = Math.round(pxM * m);
+      if (w !== sbW) { sbW = w; sbBar.style.width = w + 'px'; sbLabel.textContent = m < 1 ? (m * 100) + ' cm' : m + ' m'; }
+    }
+    arrivingEl.hidden = arriving <= 0;
+    if (arriving > 0) arrivingEl.textContent = '+' + arriving + ' 接近中';
+    fpsFrames++; fpsT += dt;
+    if (fpsT >= 0.5) { fps = fpsFrames / fpsT; fpsFrames = 0; fpsT = 0; }
+    metricT += dt; qualityT += dt;
+    if (settings.debug && metricT >= 0.5) {
+      metricT = 0;
+      var st = engine.analyze();
+      $('dN').textContent = engine.joined + ' / ' + engine.n;
+      $('dFps').textContent = fps.toFixed(0);
+      $('dSim').textContent = simMs.toFixed(2);
+      $('dP').textContent = st.P.toFixed(3);
+      $('dNN').textContent = st.meanNN.toFixed(2) + ' / ' + st.minNN.toFixed(2);
+      $('dR').textContent = st.radius.toFixed(2);
+      $('dComp').textContent = st.components;
+      $('dSpd').textContent = st.meanSpeed.toFixed(2);
+      $('dStress').textContent = st.maxStress.toFixed(2);
+      $('dIntr').textContent = engine.intrusions;
+      $('dPR').textContent = pixelRatio.toFixed(2);
+      $('dSeed').textContent = engine.seed;
+    }
+    // 自動：重いときは先に解像度、次に最大個体数（既存個体は消さない）
+    if (settings.quality === 'auto' && qualityT >= 3) {
+      qualityT = 0;
+      if (fps < 42 && pixelRatio > 1) { pixelRatio = Math.max(1, pixelRatio - 0.5); renderer.setPixelRatio(pixelRatio); renderer.setSize(W, H, false); }
+      else if ((fps < 30 || simMs > 12) && engine.maxCount > engine.n) { engine.maxCount = Math.max(150, engine.n); }
+    }
+  }
+
+  /* ---------------- メインループ（固定刻み＋描画補間） ---------------- */
+  var lastFrame = performance.now(), acc = 0, paused = false, simClock = 0;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    var dt = (now - lastFrame) / 1000; lastFrame = now;
+    if (!(dt > 0)) dt = 0; if (dt > 0.1) dt = 0.1;
+    if (!paused) {
+      acc += dt; simClock += dt;
+      var steps = 0;
+      while (acc >= STEP && steps < 4) {
+        updateTouch(STEP);
+        var t0 = performance.now();
+        engine.step(STEP);
+        simMs += (performance.now() - t0 - simMs) * 0.1;
+        acc -= STEP; steps++;
+      }
+      if (steps === 4 && acc > STEP) acc = 0;
+    } else {
+      acc = 0;
+      engine._updateObstacles(Math.max(dt, 1 / 120));
+    }
+    updateCamera(dt, simClock);
+    updateFish(paused ? 1 : acc / STEP, paused ? 0 : dt);
+    syncObstacles();
+    updateFoodPts();
+    if (mode === 'obstacle' && (frame._n = (frame._n || 0) + 1) % 15 === 0) updateObsUI();
+    updateHud(dt);
+    renderer.render(scene, camera);
+  }
+  updateCamera(0, 0);
+  FLOCK.debugAudio = function () { return audio; };
+  FLOCK.debugEngine = engine;   // 検証用
+  FLOCK.debugView = function (yaw, pitch, z) { userYaw = yaw; userPitch = pitch; zoom = z; };
+  camDist = desiredDist();
+  updateObsUI();
+  requestAnimationFrame(frame);
+})();
+
+</script>
+</body>
+</html>

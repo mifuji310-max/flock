@@ -1,0 +1,515 @@
+<title>FLOCK</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!--
+  FLOCK 群れシミュレータ  プロトタイプ v0.12「TOUCH & AVOID」
+  準拠：FLOCK（仮称）群れシミュレータ 開発設計書 v0.2（2026-10-30）
+
+  更新履歴
+  v0.12 2026-11-01  拡大縮小（2本指）のつもりが、触る・餌・障害物の操作になってしまう問題を対策。
+                    ・指1本が触れたら0.12秒だけ待ち、その間に2本目が来たら拡大縮小として扱う
+                    ・待つ間に指が動いた／指を離した（タップ）ときは、すぐ通常の操作として実行
+                    ・操作を始めて0.6秒以内に2本目が来たら、置いた障害物とまいた餌を取り消す
+                    ・マウス操作には待ち時間なし
+  v0.11 2026-11-01  横画面（高さ600px以下の横長）のレイアウトを追加：モード切替は右下に縦並び、
+                    道具・障害物・色付けのパネルとヒントは左下、スケールバーは左上へ。中央を群れのために空ける
+  v0.10 2026-10-31  ・餌やり：触れるモードに道具の切替（手／餌）を追加。タップした場所に餌をまき、なぞると帯状にまける。
+                      餌粒はぱっと広がってゆっくり沈み、近くの魚が群がって食べる。興奮は近くの仲間へ伝わり群れ全体が集まる。
+                      食べ終わると数秒かけて元の群泳に戻る。餌がなくなると「ぽつぽつ」という小さな水音
+                    ・群れの近くに触れたときの水音を、帯域を絞った「ザッ」から、低めのやわらかい「ふわっ」＋小さな泡に変更
+                    ・障害物パネルを小型化：1行（種類・個数・削除・全消去）＋選択中のみサイズと高さの1行
+  v0.9  2026-10-31  障害物を2種類に：浮き玉（網をかけたガラス玉を海底の重りからロープで係留）と岩の柱（海底から立つ）。
+                    ・操作：ドラッグで海底に沿って水平に移動、高さはスライダー（m表示）、「置く種類」で次に置くものを選ぶ
+                    ・群れは浮き玉・ロープ・柱をそれぞれの形に沿ってよける（柱は鉛直の円柱として判定）
+                    ・選択中は足元の海底に破線リング。海底を非表示にしているときも足元に砂地と影を表示
+                    ・置く高さは群れの泳いでいる高さに自動で合わせる
+  v0.8  2026-10-31  岩をリアルに：多重ノイズの凹凸と割れた平面、くぼみの陰り・斑点・上面の藻の色、
+                    なめらかな陰影、周りに小石を添える、砂への接地影、水面からの揺らめく光（岩の上面と海底）
+  v0.7  2026-10-31  ・素早いタップが無視される不具合を修正（指を一瞬で離しても最低0.15秒は刺激を与える）
+                    ・タッチ音を水滴のみに。音程は毎回ランダム、音量を約5dB下げた
+                    ・タッチ音の選択をやめ、オン／オフのスイッチに
+                    ・残響を短く（最初のタップ時の処理負荷も軽減）
+  v0.6  2026-10-31  サウンドを刷新（すべてWeb Audioで合成）。
+                    ・環境音：低いうねり＋寄せては返す水の揺らぎ＋ときどき立ちのぼる泡
+                    ・タッチ音を追加：水琴窟（既定）／水滴／なし。画面の上ほど高い音、なぞると連続して鳴る
+                    ・群れの近くに触れたときだけ、逃げる魚の水音を重ねる
+                    ・設定に「タッチ音」の選択（選ぶと試聴）と「音量」スライダーを追加
+                    ※設計書9.3「タッチ・合流に過剰な電子効果音は付けない」から、タッチ音を付ける方針へ変更
+  v0.5  2026-10-31  一時停止中に上部のボタンが楕円に潰れ、個体数表示が折り返す不具合を修正。
+                    「一時停止中」表示を上部バーから外し、画面上部中央に表示
+  v0.4  2026-10-31  尾びれを縮小（開きを体高とほぼ同じに、長さを全長の約15%に）。写真の実物に合わせた
+  v0.3  2026-10-31  実機確認のフィードバックを反映。
+                    ・背びれ・胸びれを外し、魚体を細身の紡錘形に。背の青緑・体側の青紫の光沢帯・銀・白の配色に
+                    ・新しい小集団の出現トーストを廃止（右上の「+N 接近中」のみに戻す）
+                    ・観察モード：魚をタップして色付け（5色・最大8匹、ランダムに3匹、すべて外す）
+                    ・視点回転：観察モードは1本指ドラッグ、全モードで2本指をそろえて動かす、PCは右ドラッグ
+                    ・目印（設定から出し入れ）：海底と1mマス目、岩（魚はよける）、群れが泳ぐ範囲の枠、スケールバー
+                    ・開発者表示：係数ごとの説明表示と「係数を既定値に戻す」
+  v0.2  2026-10-31  別試作（試作B）の良い点を取り込み。動き・UIの骨格はv0.1を維持。
+                    ・一時停止（ボタン／Spaceキー）。停止中も障害物の配置・移動とズームは可能
+                    ・キーボード操作（1/2/3でモード切替、Escで設定を閉じる）
+                    ・モード別のひとことヒント（数秒で消える）
+                    ・成長モードで新しい小集団の出現をトーストで通知（方向と匹数、15秒に1回まで）
+                    ・驚いた個体・急旋回した個体の体側がわずかに光る
+                    ・魚体に背びれ・胸びれを追加
+                    ・水面からの光の筋とビネット（画面周辺の減光）
+                    ・選択中の障害物に破線リングとハンドルを表示
+                    ・障害物を群れの泳ぐ範囲内に制限
+                    ・開発者表示に「遊泳速度」スライダーを追加
+                    ・尾びれ運動のシェーダで smoothstep の引数順を規格どおりに修正
+  v0.1  2026-10-30  初版。設計書16章のプロトタイプ範囲を実装。
+                    ・自律群泳（Vicsek型整列＋分離/結合＋距離別優先＋環境流＋ソフト境界）
+                    ・タッチ忌避（タップ/長押し/ドラッグ、軌跡補間、奥行き厚み、stress伝播）
+                    ・球体障害物（設置/移動/サイズ/削除/全消去、最大5個、予測回避）
+                    ・観察モード、ピンチズーム、カメラ自動追従
+                    ・開発者表示（係数調整、偏極度/最近接距離/連結成分/FPS など、シード固定）
+                    ・成長モード（12→約500匹の小集団合流）は設定から切替（既定OFF）
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Unbounded:wght@400;600&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<style>
+/* Layout: 全画面の水中シーンに、上端の細い情報帯と下端のモード切替だけを浮かべる。単一の水中テーマ（意図的にダーク固定）。 */
+:root {
+  --abyss: #03101b;
+  --deep: #082638;
+  --glass: rgba(7, 28, 43, 0.66);
+  --glass-strong: rgba(6, 24, 37, 0.9);
+  --line: rgba(150, 210, 226, 0.18);
+  --ink: #e2f0f4;
+  --mute: #87a8b6;
+  --aqua: #92e2db;
+  --aqua-ink: #04222b;
+  --warn: #f0c97c;
+  --warn-line: rgba(240, 201, 124, 0.42);
+  --vignette: rgba(1, 7, 14, 0.42);
+  --f-mark: "Unbounded", "Zen Kaku Gothic New", system-ui, sans-serif;
+  --f-ui: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 14px;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--abyss);
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: 14px;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.vignette { position: fixed; inset: 0; z-index: 1; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 48%, var(--vignette) 100%); }
+.paused-chip {
+  position: fixed; z-index: 5; left: 50%; transform: translateX(-50%);
+  top: calc(env(safe-area-inset-top, 0px) + 104px); pointer-events: none;
+  padding: 5px 11px; border-radius: 999px; border: 1px solid var(--warn-line);
+  background: var(--glass); color: var(--warn); font-size: 11px; letter-spacing: 0.08em; white-space: nowrap;
+}
+.mode-hint {
+  pointer-events: none; max-width: 100%; padding: 6px 14px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--line); color: var(--ink);
+  font-size: 12px; line-height: 1.6; text-align: center; transition: opacity .6s;
+}
+.mode-hint.fade { opacity: 0; }
+.obs-lbl { font-size: 12px; color: var(--mute); }
+.obs-kind { justify-self: start; }
+.obs-val { font-family: var(--f-num); font-size: 11px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.swatches { grid-column: 1 / -1; display: flex; gap: 10px; }
+.swatch {
+  width: 34px; height: 34px; border-radius: 50%; border: 2px solid transparent; cursor: pointer;
+  box-shadow: inset 0 0 0 2px var(--abyss);
+}
+.swatch[aria-checked="true"] { border-color: var(--ink); }
+.scalebar {
+  position: fixed; z-index: 5; right: max(16px, env(safe-area-inset-right, 0px));
+  top: calc(env(safe-area-inset-top, 0px) + 64px);
+  display: flex; align-items: center; gap: 8px; pointer-events: none;
+  font-family: var(--f-num); font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums;
+}
+.scalebar .bar { display: block; height: 6px; border: 1.5px solid var(--ink); border-top: 0; opacity: 0.75; }
+.sheet .sub-h { margin: 18px 0 0; }
+.dbg-desc { margin: 2px 0 8px; font-family: var(--f-ui); font-size: 11px; line-height: 1.6; color: var(--mute); }
+.row input.vol { flex: 0 1 150px; min-width: 0; }
+.vol-out { width: 2.2em; text-align: right; font-family: var(--f-num); font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.dbg-reset { width: 100%; margin-top: 8px; min-height: 34px; font-family: var(--f-ui); font-size: 12px; }
+button { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--aqua); outline-offset: 2px; }
+
+/* ---------- 上端の情報帯 ---------- */
+.top {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+  display: flex; align-items: center; gap: 12px;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+.mark { font-family: var(--f-mark); font-weight: 600; font-size: 15px; letter-spacing: 0.32em; color: var(--ink); opacity: 0.92; }
+.count { display: flex; align-items: baseline; gap: 4px; font-family: var(--f-num); font-variant-numeric: tabular-nums; color: var(--aqua); font-size: 15px; }
+.count small { font-family: var(--f-ui); font-size: 11px; color: var(--mute); }
+.count .arriving { font-size: 11px; color: var(--mute); margin-left: 6px; }
+.top .spacer { flex: 1; min-width: 0; }
+.top > .mark, .top > .count, .top > .icon-btn { flex: none; white-space: nowrap; }
+.icon-btn {
+  pointer-events: auto; width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center; border: 1px solid var(--line);
+  background: var(--glass); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer;
+}
+.icon-btn svg { width: 20px; height: 20px; }
+
+/* ---------- 下端のモード切替 ---------- */
+.bottom {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+.modes {
+  pointer-events: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+  width: min(100%, 360px); padding: 4px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--line);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.modes button {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; border: 0; border-radius: 999px; background: transparent;
+  color: var(--mute); font-size: 13px; font-weight: 500; cursor: pointer; letter-spacing: 0.04em;
+  transition: background .2s, color .2s;
+}
+.modes button svg { width: 18px; height: 18px; flex: none; }
+.modes button[aria-pressed="true"] { background: var(--aqua); color: var(--aqua-ink); }
+
+/* 障害物バー（v0.10：小型化） */
+.obs-bar {
+  pointer-events: auto; width: min(100%, 360px); display: flex; flex-direction: column; gap: 4px;
+  padding: 5px 6px; border-radius: 16px; background: var(--glass); border: 1px solid var(--line);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.obs-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.obs-row .spacer { flex: 1; }
+.obs-count { font-family: var(--f-num); font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.obs-kind button, #touchTool button { display: flex; align-items: center; gap: 5px; }
+.obs-kind svg, #touchTool svg { width: 16px; height: 16px; flex: none; }
+.icon-chip {
+  width: 36px; height: 34px; flex: none; display: grid; place-items: center; cursor: pointer;
+  border-radius: 10px; border: 1px solid var(--line); background: rgba(146, 226, 219, 0.06);
+}
+.icon-chip svg { width: 18px; height: 18px; }
+.icon-chip:disabled { opacity: 0.35; cursor: default; }
+.text-chip { flex: none; min-height: 34px; padding: 0 10px; font-size: 12px; white-space: nowrap; }
+.obs-sliders { gap: 14px; padding: 0 6px 3px; }
+.mini { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 11px; color: var(--mute); }
+.mini b { font-family: var(--f-num); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.mini input { width: 100%; margin: 0; }
+.tool-bar { pointer-events: auto; padding: 3px; border-radius: 12px; background: var(--glass); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.tool-bar .seg { border: 0; padding: 0; }
+
+/* 色付けパネル */
+.obs-panel {
+  pointer-events: auto; width: min(100%, 360px);
+  display: grid; grid-template-columns: auto 1fr; gap: 10px 12px; align-items: center;
+  padding: 12px 14px; border-radius: var(--r);
+  background: var(--glass); border: 1px solid var(--line);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.obs-head { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--mute); }
+.obs-head b { font-family: var(--f-num); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.obs-head .hint { margin-left: auto; color: var(--warn); }
+.obs-panel label { font-size: 12px; color: var(--mute); }
+.obs-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
+.chip {
+  flex: 1; min-height: 40px; border-radius: 10px; border: 1px solid var(--line);
+  background: rgba(146, 226, 219, 0.06); cursor: pointer; font-size: 13px;
+}
+.chip:disabled { opacity: 0.35; cursor: default; }
+input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
+
+/* ---------- 初回ガイド ---------- */
+.guide {
+  position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 4;
+  width: min(calc(100% - 48px), 320px); padding: 18px 20px; border-radius: var(--r);
+  background: var(--glass); border: 1px solid var(--line); text-align: center;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  pointer-events: none; line-height: 1.9; font-size: 14px;
+  transition: opacity .5s;
+}
+.guide .sub { display: block; margin-top: 6px; font-size: 11px; color: var(--mute); }
+.guide.fade { opacity: 0; }
+
+/* ---------- トースト ---------- */
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 8;
+  top: calc(env(safe-area-inset-top, 0px) + 144px);
+  max-width: calc(100% - 32px); padding: 8px 14px; border-radius: 999px;
+  background: var(--glass-strong); border: 1px solid var(--line); font-size: 12px;
+  transition: opacity .3s; pointer-events: none;
+}
+
+/* ---------- 設定シート ---------- */
+.backdrop { position: fixed; inset: 0; z-index: 9; background: rgba(1, 8, 14, 0.45); }
+.sheet {
+  position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 10;
+  width: min(100%, 440px); max-height: 82%; overflow-y: auto;
+  padding: 18px max(18px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 18px) max(18px, env(safe-area-inset-left, 0px));
+  border-radius: 20px 20px 0 0; background: var(--glass-strong);
+  border: 1px solid var(--line); border-bottom: 0;
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+.sheet h2 { margin: 0 0 4px; font-family: var(--f-mark); font-weight: 400; font-size: 13px; letter-spacing: 0.24em; color: var(--mute); }
+.row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.row:last-of-type { border-bottom: 0; }
+.row .lbl { flex: 1; min-width: 0; }
+.row .lbl small { display: block; color: var(--mute); font-size: 11px; margin-top: 2px; line-height: 1.5; }
+.switch { position: relative; width: 48px; height: 28px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch span { position: absolute; inset: 0; border-radius: 999px; background: rgba(150, 210, 226, 0.18); transition: background .2s; pointer-events: none; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); transition: transform .2s; }
+.switch input:checked + span { background: var(--aqua); }
+.switch input:checked + span::after { transform: translateX(20px); background: var(--aqua-ink); }
+.switch input:focus-visible + span { outline: 2px solid var(--aqua); outline-offset: 2px; }
+.seg { display: flex; gap: 4px; padding: 3px; border-radius: 10px; border: 1px solid var(--line); flex: none; }
+.seg button { border: 0; background: transparent; padding: 6px 10px; border-radius: 7px; font-size: 12px; color: var(--mute); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--aqua); color: var(--aqua-ink); }
+.btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 14px 0 4px; }
+.ver { margin-top: 14px; font-size: 11px; color: var(--mute); line-height: 1.7; }
+.ver b { font-family: var(--f-num); font-weight: 500; color: var(--ink); }
+
+/* ---------- 開発者表示 ---------- */
+.debug {
+  position: fixed; z-index: 6; left: max(10px, env(safe-area-inset-left, 0px));
+  top: calc(env(safe-area-inset-top, 0px) + 62px);
+  width: min(calc(100% - 20px), 260px); max-height: calc(100% - 200px); overflow-y: auto;
+  padding: 10px 12px; border-radius: 12px; background: var(--glass-strong); border: 1px solid var(--line);
+  font-family: var(--f-num); font-size: 11px; line-height: 1.55;
+}
+.debug dl { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; margin: 0; }
+.debug dt { color: var(--mute); }
+.debug dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.debug details { margin-top: 8px; }
+.debug summary { cursor: pointer; color: var(--aqua); font-family: var(--f-ui); font-size: 12px; padding: 4px 0; }
+.dbg-slider { display: grid; grid-template-columns: 64px 1fr 38px; gap: 6px; align-items: center; margin-top: 4px; }
+.dbg-slider span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.debug label.chk { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-family: var(--f-ui); font-size: 12px; }
+.seed-row { display: flex; gap: 6px; margin-top: 8px; }
+.seed-row input { flex: 1; min-width: 0; background: rgba(0,0,0,0.25); border: 1px solid var(--line); color: var(--ink); border-radius: 6px; padding: 6px; font: inherit; }
+.seed-row button { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 0 8px; cursor: pointer; font-family: var(--f-ui); font-size: 11px; }
+
+/* ---------- 横画面：ボタン類を左右へ寄せ、中央を空ける（v0.11） ---------- */
+@media (orientation: landscape) and (max-height: 600px) {
+  .bottom {
+    right: auto; width: min(44vw, 340px); align-items: flex-start; gap: 6px;
+    padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: 0;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  }
+  .modes {
+    position: fixed; right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+    width: auto; grid-template-columns: 1fr; padding: 4px; border-radius: 26px;
+  }
+  .modes button { flex-direction: column; gap: 2px; min-height: 50px; min-width: 66px; padding: 5px 8px; font-size: 11px; border-radius: 22px; }
+  .obs-bar, .obs-panel { width: 100%; }
+  .obs-panel { padding: 8px 10px; gap: 6px 10px; }
+  .obs-panel .chip { min-height: 32px; }
+  .swatch { width: 28px; height: 28px; }
+  .mode-hint { text-align: left; font-size: 11px; }
+  .scalebar { right: auto; left: max(16px, env(safe-area-inset-left, 0px)); top: calc(env(safe-area-inset-top, 0px) + 56px); }
+  .top { padding-top: calc(env(safe-area-inset-top, 0px) + 6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide, .toast, .mode-hint, .modes button, .switch span, .switch span::after { transition: none; }
+}
+</style>
+
+<canvas id="scene" aria-label="魚群シミュレーション"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+
+<header class="top">
+  <span class="mark">FLOCK</span>
+  <span class="count" aria-live="polite"><span id="count">0</span><small>匹</small><span class="arriving" id="arriving" hidden></span></span>
+  <span class="spacer"></span>
+  <button class="icon-btn" id="btnPause" aria-label="一時停止" aria-pressed="false" title="一時停止（Space）">
+    <svg id="pauseIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6v12M15 6v12"/></svg>
+  </button>
+  <button class="icon-btn" id="btnSettings" aria-label="設定">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>
+  </button>
+</header>
+
+<div class="guide" id="guide" hidden>
+  魚は自動で泳ぎます。<br>触れると逃げます。<br>障害物も置けます。
+  <span class="sub">2本指で回転・ズーム ／ 画面に触れると閉じます</span>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<div class="paused-chip" id="pausedChip" hidden>一時停止中</div>
+
+<div class="scalebar" id="scalebar" hidden aria-label="スケールバー"><span id="scalebarLabel">1 m</span><span class="bar" id="scalebarBar"></span></div>
+
+<aside class="debug" id="debug" hidden>
+  <dl>
+    <dt>個体数</dt><dd id="dN">-</dd>
+    <dt>FPS</dt><dd id="dFps">-</dd>
+    <dt>更新 ms</dt><dd id="dSim">-</dd>
+    <dt>偏極度 P</dt><dd id="dP">-</dd>
+    <dt>最近接 平均/最小</dt><dd id="dNN">-</dd>
+    <dt>群れ半径</dt><dd id="dR">-</dd>
+    <dt>連結成分</dt><dd id="dComp">-</dd>
+    <dt>平均速度</dt><dd id="dSpd">-</dd>
+    <dt>最大 stress</dt><dd id="dStress">-</dd>
+    <dt>障害物侵入</dt><dd id="dIntr">-</dd>
+    <dt>描画比</dt><dd id="dPR">-</dd>
+    <dt>シード</dt><dd id="dSeed">-</dd>
+  </dl>
+  <details open>
+    <summary>係数</summary>
+    <label class="chk"><input type="checkbox" id="chkDesc"> 係数の説明を表示</label>
+    <div id="dbgSliders"></div>
+    <button class="chip dbg-reset" id="btnDbgReset">係数を既定値に戻す</button>
+  </details>
+  <label class="chk"><input type="checkbox" id="chkRadius"> 刺激半径・障害物の拡張半径を表示</label>
+  <div class="seed-row">
+    <input id="seedInput" inputmode="numeric" placeholder="シード" aria-label="乱数シード">
+    <button id="btnSeed">固定して再開</button>
+  </div>
+</aside>
+
+<div class="bottom">
+  <div class="mode-hint" id="hint" hidden></div>
+  <div class="tool-bar" id="touchTools">
+    <div class="seg" id="touchTool" role="group" aria-label="触れるモードの道具">
+      <button data-t="touch" aria-pressed="true" title="触れる">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M12 10V9a1.5 1.5 0 0 1 3 0v2"/><path d="M15 10.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a5 5 0 0 1-4-2l-2.6-3.6a1.5 1.5 0 0 1 2.3-1.9L9 15"/></svg>
+        <span>触れる</span>
+      </button>
+      <button data-t="feed" aria-pressed="false" title="餌をまく">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="7" cy="8" r="1.8"/><circle cx="13" cy="5.5" r="1.5"/><circle cx="17.5" cy="10" r="1.8"/><circle cx="10.5" cy="12.5" r="1.6"/><circle cx="6" cy="16" r="1.4"/><circle cx="14.5" cy="16.5" r="1.8"/><circle cx="10" cy="20" r="1.3"/></svg>
+        <span>餌</span>
+      </button>
+    </div>
+  </div>
+  <div class="obs-bar" id="obsPanel" hidden>
+    <div class="obs-row">
+      <div class="seg obs-kind" id="obsKind" role="group" aria-label="次に置く障害物の種類">
+        <button data-k="buoy" aria-pressed="true" title="浮き玉">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="8" r="5.5"/><path d="M6.5 8h11M12 2.5v11M12 13.5V21M9.5 21h5"/></svg>
+          <span>浮き玉</span>
+        </button>
+        <button data-k="pillar" aria-pressed="false" title="岩の柱">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M8 21V7.5C8 4.5 9.8 3 12 3s4 1.5 4 4.5V21M5 21h14"/></svg>
+          <span>柱</span>
+        </button>
+      </div>
+      <span class="obs-count" id="obsCount">0/5</span>
+      <span class="spacer"></span>
+      <button class="icon-chip" id="btnObsDelete" aria-label="選んだ障害物を削除" title="削除">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+      </button>
+      <button class="chip text-chip" id="btnObsClear">全消去</button>
+    </div>
+    <div class="obs-row obs-sliders" id="obsSliders" hidden>
+      <label class="mini" for="obsSize"><span>サイズ</span><input type="range" id="obsSize" min="0.5" max="2.5" step="0.05" value="1.2"></label>
+      <label class="mini" for="obsHeight"><span>高さ <b id="obsHeightVal"></b></span><input type="range" id="obsHeight" min="2" max="15" step="0.1" value="8"></label>
+    </div>
+  </div>
+  <div class="obs-panel" id="tagPanel" hidden>
+    <div class="obs-head">色付け <b id="tagCount">0/8</b><span class="hint">次に付ける色</span></div>
+    <div class="swatches" id="swatches" role="radiogroup" aria-label="次に付ける色"></div>
+    <div class="obs-actions">
+      <button class="chip" id="btnTagRandom">ランダムに3匹</button>
+      <button class="chip" id="btnTagClear">すべて外す</button>
+    </div>
+  </div>
+  <nav class="modes" aria-label="操作モード">
+    <button id="modeTouch" aria-pressed="true" title="触れる（1）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M12 10V9a1.5 1.5 0 0 1 3 0v2"/><path d="M15 10.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a5 5 0 0 1-4-2l-2.6-3.6a1.5 1.5 0 0 1 2.3-1.9L9 15"/></svg>
+      触れる
+    </button>
+    <button id="modeObstacle" aria-pressed="false" title="障害物（2）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="7"/><path d="M8.5 9.5a4.5 4.5 0 0 1 3-2.3" stroke-linecap="round"/></svg>
+      障害物
+    </button>
+    <button id="modeWatch" aria-pressed="false" title="観察（3）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>
+      観察
+    </button>
+  </nav>
+</div>
+
+<div class="backdrop" id="backdrop" hidden></div>
+<section class="sheet" id="sheet" hidden aria-label="設定">
+  <h2>SETTINGS</h2>
+  <div class="row">
+    <div class="lbl">仲間の合流（成長）<small>12匹から始まり、画面外の小さな群れが合流して約500匹まで増えます。切り替えると群れを最初からやり直します。</small></div>
+    <label class="switch"><input type="checkbox" id="optGrowth" aria-label="仲間の合流"><span></span></label>
+  </div>
+  <div class="row">
+    <div class="lbl">画質<small>自動は動作が重いときに解像度と最大個体数を下げます。</small></div>
+    <div class="seg" id="optQuality">
+      <button data-q="auto" aria-pressed="true">自動</button>
+      <button data-q="high" aria-pressed="false">高</button>
+      <button data-q="low" aria-pressed="false">省電力</button>
+    </div>
+  </div>
+  <div class="row">
+    <div class="lbl">環境音<small>水のうねりと、ときどき立ちのぼる泡の音。最初に画面へ触れたときに鳴り始めます。</small></div>
+    <label class="switch"><input type="checkbox" id="optSound" aria-label="環境音"><span></span></label>
+  </div>
+  <div class="row">
+    <div class="lbl">タッチ音<small>触れたときの水滴の音。オンにすると試聴できます。</small></div>
+    <label class="switch"><input type="checkbox" id="optTouchSfx" aria-label="タッチ音"><span></span></label>
+  </div>
+  <div class="row">
+    <label class="lbl" for="optVolume">音量</label>
+    <input type="range" id="optVolume" class="vol" min="0" max="100" step="1" value="70">
+    <span class="vol-out" id="volOut">70</span>
+  </div>
+  <div class="row">
+    <div class="lbl">開発者表示<small>係数の調整と観察指標（偏極度・最近接距離・連結成分など）。</small></div>
+    <label class="switch"><input type="checkbox" id="optDebug" aria-label="開発者表示"><span></span></label>
+  </div>
+  <h2 class="sub-h">MARKERS</h2>
+  <div class="row">
+    <div class="lbl">海底と1mマス目<small>細い線が1m、太い線が5mごと。</small></div>
+    <label class="switch"><input type="checkbox" id="optSeabed" aria-label="海底と1mマス目"><span></span></label>
+  </div>
+  <div class="row">
+    <div class="lbl">岩<small>海底に固定の岩を置きます。魚は岩をよけます。</small></div>
+    <label class="switch"><input type="checkbox" id="optRocks" aria-label="岩"><span></span></label>
+  </div>
+  <div class="row">
+    <div class="lbl">群れが泳ぐ範囲<small>幅16m × 高さ8m × 奥行14mの楕円体。外へ出ると内側へ戻ろうとします。</small></div>
+    <label class="switch"><input type="checkbox" id="optRange" aria-label="群れが泳ぐ範囲"><span></span></label>
+  </div>
+  <div class="row">
+    <div class="lbl">スケールバー<small>群れの中心の奥行きでの長さを右上に表示します。</small></div>
+    <label class="switch"><input type="checkbox" id="optScale" aria-label="スケールバー"><span></span></label>
+  </div>
+  <div class="btn-row">
+    <button class="chip" id="btnResetView">視点を戻す</button>
+    <button class="chip" id="btnGuide">ガイドを再表示</button>
+    <button class="chip" id="btnRestart">群れを最初から</button>
+    <button class="chip" id="btnClose">閉じる</button>
+  </div>
+  <p class="ver"><b>FLOCK v0.12</b> TOUCH &amp; AVOID ／ 設計書 v0.2 準拠<br>
+  v0.12（2026-11-01）2本指の拡大縮小で誤って操作しないように<br>
+  v0.11（2026-11-01）横画面ではボタン類を左右に配置<br>
+  v0.10（2026-10-31）餌やり（触れるモードの道具）、自然な水音、障害物パネルを小型化<br>
+  v0.9（2026-10-31）障害物を浮き玉（係留ブイ）と岩の柱に。水平移動＋高さスライダー<br>
+  v0.8（2026-10-31）岩をリアルに（凹凸・割れ面・藻・小石・接地影・揺らめく光）<br>
+  v0.7（2026-10-31）素早いタップが効かない不具合を修正、タッチ音を水滴のみ（音程ランダム・小さめ）に<br>
+  v0.6（2026-10-31）環境音を水の音に刷新、タッチ音（水琴窟・水滴）と音量を追加<br>
+  v0.5（2026-10-31）一時停止中に上部のボタンが潰れる不具合を修正<br>
+  v0.4（2026-10-31）尾びれを実物に合わせて小さく<br>
+  v0.3（2026-10-31）ひれを外し魚体を細身に・出現通知を廃止・色付け・視点回転・目印・係数の説明<br>
+  v0.2（2026-10-31）一時停止・キーボード操作・ヒント・合流通知・個体の光り・ひれ・光の筋・選択リングを追加<br>
+  v0.1（2026-10-30）初版：自律群泳・タッチ忌避・球体障害物・観察モード・開発者表示・成長モード（任意）<br>
+  個体は人工モデルで、実際の魚の生態を厳密に再現したものではありません。</p>
+</section>
