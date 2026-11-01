@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK simulation engine  v0.9
+ * FLOCK simulation engine  v0.10
+ *   v0.10 2026-11-01 止まり木の降り方を改訂：上空を回る → 降りる決断が仲間へ広がる → 着いた所の空きに止まる（席を先に決めない）
  *   v0.9 2026-11-01 止まり木（ムクドリ）：席を割り当てて降りる・止まる・ハヤブサで一斉に飛び立つ
  *   v0.8 2026-11-01 ムクドリ（species: 'starling'）：近い順の7羽で整列・結合、ハヤブサから逃げる、平たい群れ、最低高度
  *   v0.7 2026-11-01 成長の計画を2000匹まで延長（上限は maxCount で決まる）
@@ -21,7 +22,7 @@
 (function (root) {
   'use strict';
 
-  var ENGINE_VERSION = '0.9';
+  var ENGINE_VERSION = '0.10';
 
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -98,6 +99,11 @@
     predR: 14, predLead: 0.3,            // ハヤブサを怖がる距離（m）、ハヤブサの何秒先の位置を見て逃げるか
     groundY: -50, minAlt: 15, floorGuard: 6,   // 地面、平常時の最低高度、高度を保ち始める余裕
     perchScareR: 30,                     // v0.9 止まり木：ハヤブサがこの距離に来たら飛び立つ（m）
+    // v0.10 降り方（設計書 v0.7 §16.14）
+    siteUp: 14, siteR: 15,               // 上空を回る高さ（止まり木から）と半径（m）
+    landDelay: 4, landBase: 0.004, landNear: 0.05, landQuorum: 0.5,  // 決め始めるまでの秒、ふだんの決めやすさ（1/秒）、真上にいるとき、仲間の影響
+    claimR: 2.5, gapMin: 0.24, gapMax: 0.50, slotSearch: 5,            // 空きを探し始める距離、好む間隔の範囲、左右に探す幅（m）
+    siteLife: 45, siteFails: 300,
     growMax: 80,
     bounds: [60, 20, 60]
   });
@@ -170,6 +176,11 @@
     this.pst = new Uint8Array(C); this.pseat = new Int32Array(C); this.ptk = new Float32Array(C);
     this.rj = new Float32Array(C);       // 飛び立ってから群れへ戻るまでの残り時間（この間は目印の鳥を追う）
     this.anchor = new Int32Array(C).fill(-1);
+    // v0.10 降り方：降りると決めた鳥の目標（電線の番号と位置、木の中の点）、好む間隔、決め直しまでの待ち時間
+    this.dw = new Int16Array(C); this.ds = new Float32Array(C);
+    this.dtx = new Float32Array(C); this.dty = new Float32Array(C); this.dtz = new Float32Array(C);
+    this.gap = new Float32Array(C); this.cool = new Float32Array(C);
+    this.site = null; this._siteSeq = 0;
     this.perches = []; this.perchedN = 0;
     this.obstacles = [];
     this.landmarks = [];               // 固定の目印（岩など）。ユーザーは編集できない
@@ -200,55 +211,134 @@
     this.joined = this.n;
     this.obstacles.length = 0;
     this.foodN = 0; this.eaten = 0; this.feed.fill(0);
-    this.pst.fill(0); this.rj.fill(0); this.perches = []; this.perchedN = 0;
+    this.pst.fill(0); this.rj.fill(0); this.cool.fill(0); this.perches = []; this.perchedN = 0; this.site = null;
     this.analyze();
   };
 
-  /* ---------------- 止まり木（v0.9） ----------------
-   * seats: [{ x, y, z, fx, fz }]（fx, fz は止まったときに向く水平の向き）
-   * 空を飛んでいる鳥のうち、席に近い順に席の数まで選び、近い席を割り当てる。選んだ鳥の番号の一覧を返す */
-  FlockEngine.prototype.perchAt = function (seats) {
-    var self = this, P = this.params;
+  /* ---------------- 止まり木（v0.9、v0.10 で降り方を改訂） ----------------
+   * site（描画側が作る。THREE には依存しない）
+   *   電線：{ kind: 'wire', wires: [[[x, y, z], ...], ...] }   電線ごとの折れ線（たるみを含む）
+   *   木　：{ kind: 'tree', x, y, z, r, seats: [{ x, y, z, fx, fz }] }
+   * 群れはまず上空を回り、降りる決断が仲間へ広がって降り、着いた所の空きに止まる（席は先に決めない） */
+  FlockEngine.prototype.perchSite = function (site) {
     // 空いた席を片づける（席の番号が変わるので、鳥の pseat も付け直す）
     var keep = [], map = {};
     for (var q = 0; q < this.perches.length; q++) if (this.perches[q].bird >= 0) { map[q] = keep.length; keep.push(this.perches[q]); }
-    for (var i = 0; i < this.n; i++) if (this.pst[i]) this.pseat[i] = map[this.pseat[i]];
+    for (var i = 0; i < this.n; i++) if (this.pst[i] && this.pseat[i] >= 0) this.pseat[i] = map[this.pseat[i]];
     this.perches = keep;
-    // すでに止まっている鳥と重なる席は使わない
-    var fresh = seats.filter(function (st) {
-      for (var k = 0; k < keep.length; k++) { var o = keep[k]; if (Math.abs(o.x - st.x) < 0.25 && Math.abs(o.y - st.y) < 0.25 && Math.abs(o.z - st.z) < 0.25) return false; }
-      return true;
-    });
-    if (!fresh.length) return [];
-    var cx = 0, cy = 0, cz = 0;
-    fresh.forEach(function (st) { cx += st.x; cy += st.y; cz += st.z; });
-    cx /= fresh.length; cy /= fresh.length; cz /= fresh.length;
-    var cand = [];
-    for (i = 0; i < this.n; i++) if (this.pst[i] === 0) cand.push([i, Math.hypot(this.px[i] - cx, this.py[i] - cy, this.pz[i] - cz)]);
-    cand.sort(function (a, b) { return a[1] - b[1]; });
-    var take = Math.min(fresh.length, cand.length), free = fresh.slice(), out = [];
-    for (var c = 0; c < take; c++) {
-      var b = cand[c][0], best = 0, bd = 1e18;
-      for (var f = 0; f < free.length; f++) {
-        var dx = free[f].x - self.px[b], dy = free[f].y - self.py[b], dz = free[f].z - self.pz[b], d2 = dx * dx + dy * dy + dz * dz;
-        if (d2 < bd) { bd = d2; best = f; }
+    // 降りる途中で席のない鳥は、空へ戻す（呼びかけを新しい止まり木へ切り替える）
+    for (i = 0; i < this.n; i++) if (this.pst[i] === 1 && this.pseat[i] < 0) { this.pst[i] = 0; this.rj[i] = 4; this.anchor[i] = -1; }
+    var cx = 0, cy = 0, cz = 0, m = 0;
+    if (site.kind === 'wire') {
+      site.cum = site.wires.map(function (pts) {
+        var c = [0];
+        for (var k = 1; k < pts.length; k++) c.push(c[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1], pts[k][2] - pts[k - 1][2]));
+        pts.forEach(function (p) { cx += p[0]; cy += p[1]; cz += p[2]; m++; });
+        return c;
+      });
+      cx /= m; cy /= m; cz /= m;
+      var len = 0; site.cum.forEach(function (c) { len += c[c.length - 1]; });
+      site.cap = Math.floor(len / ((this.params.gapMin + this.params.gapMax) / 2));   // 止まれるおおよその数
+    } else { cx = site.x; cy = site.y; cz = site.z; site.cap = site.seats.length; }
+    site.cx = cx; site.cy = cy; site.cz = cz;
+    site.ox = cx; site.oy = cy + this.params.siteUp; site.oz = cz;
+    site.t = 0; site.fails = 0; site.active = true; site.id = site.key != null ? site.key : 's' + (++this._siteSeq);   // 同じ電線の区間・同じ木は同じ id（前に止まった鳥と重ならない）
+    site.dir = this.rng() < 0.5 ? 1 : -1;   // 回る向き
+    this.site = site;
+    for (i = 0; i < this.n; i++) this.cool[i] = 0;
+  };
+  // 電線 w の上で点 (x, y, z) に一番近い点の、電線に沿った距離 s と、その点
+  FlockEngine.prototype._wireNearest = function (site, x, y, z, out) {
+    var best = 1e18;
+    for (var w = 0; w < site.wires.length; w++) {
+      var pts = site.wires[w], cum = site.cum[w];
+      for (var k = 0; k < pts.length - 1; k++) {
+        var a = pts[k], b = pts[k + 1], abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2], l2 = abx * abx + aby * aby + abz * abz;
+        var t = l2 > 0 ? ((x - a[0]) * abx + (y - a[1]) * aby + (z - a[2]) * abz) / l2 : 0;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        var qx = a[0] + abx * t, qy = a[1] + aby * t, qz = a[2] + abz * t, d2 = (x - qx) * (x - qx) + (y - qy) * (y - qy) + (z - qz) * (z - qz);
+        if (d2 < best) { best = d2; out.w = w; out.s = cum[k] + Math.sqrt(l2) * t; out.x = qx; out.y = qy; out.z = qz; }
       }
-      var seat = free.splice(best, 1)[0];
-      seat.bird = b;
-      this.pseat[b] = this.perches.length; this.perches.push(seat);
-      this.pst[b] = 1; this.stress[b] = 0;
-      out.push(b);
     }
     return out;
   };
-  // 降りている途中の鳥を空へ戻す（2本指の誤操作の取り消し用）
-  FlockEngine.prototype.releaseBirds = function (list) {
-    for (var k = 0; k < list.length; k++) { var b = list[k]; if (this.pst[b]) { this.perches[this.pseat[b]].bird = -1; this.pst[b] = 0; } }
+  // 電線 w の、端からの距離 s の点と、その場所の電線の向き
+  FlockEngine.prototype._wireAt = function (site, w, s, out) {
+    var pts = site.wires[w], cum = site.cum[w], k = 0;
+    while (k < pts.length - 2 && cum[k + 1] < s) k++;
+    var a = pts[k], b = pts[k + 1], L = cum[k + 1] - cum[k] || 1, t = (s - cum[k]) / L;
+    out.x = a[0] + (b[0] - a[0]) * t; out.y = a[1] + (b[1] - a[1]) * t; out.z = a[2] + (b[2] - a[2]) * t;
+    out.dx = (b[0] - a[0]) / L; out.dz = (b[2] - a[2]) / L;
+    return out;
+  };
+  // 空を飛んでいた鳥 i が「降りる」と決める
+  FlockEngine.prototype._startDescent = function (i) {
+    var site = this.site, r = this.rng;
+    this.pst[i] = 1; this.pseat[i] = -1; this.stress[i] = 0;
+    this.gap[i] = this.params.gapMin + r() * (this.params.gapMax - this.params.gapMin);
+    if (site.kind === 'wire') {
+      // 電線の空いていそうな所を目指す：候補を5つ見て、近くて、止まっている鳥や向かっている鳥が少ない所を選ぶ
+      var bestW = 0, bestS = 0, bestC = 1e18;
+      for (var c = 0; c < 5; c++) {
+        var w = Math.floor(r() * site.wires.length), L = site.cum[w][site.cum[w].length - 1], sc = 0.6 + r() * (L - 1.2);
+        var pt = this._wireAt(site, w, sc, {}), crowd = 0;
+        for (var j = 0; j < this.n; j++) {
+          if (this.pst[j] === 1 && j !== i && this.dw[j] === w && Math.abs(this.ds[j] - sc) < 1.5) crowd++;
+          else if (this.pst[j] === 2) { var o = this.perches[this.pseat[j]]; if (o.site === site.id && o.w === w && Math.abs(o.s - sc) < 1.5) crowd++; }
+        }
+        var cost = Math.hypot(pt.x - this.px[i], pt.z - this.pz[i]) + crowd * 6;
+        if (cost < bestC) { bestC = cost; bestW = w; bestS = sc; }
+      }
+      this.dw[i] = bestW; this.ds[i] = bestS;
+    }
+    if (site.kind === 'tree') {   // 樹冠の中のどこかを目指す
+      var a = r() * Math.PI * 2, el = (r() - 0.3) * 1.6, rr = site.r * (0.3 + r() * 0.6);
+      this.dtx[i] = site.x + Math.cos(a) * Math.cos(el) * rr; this.dty[i] = site.y + Math.sin(el) * rr * 0.75; this.dtz[i] = site.z + Math.sin(a) * Math.cos(el) * rr;
+    }
+  };
+  // 着いた所で空きを探す。見つかれば席を作って true
+  FlockEngine.prototype._claim = function (i) {
+    var site = this.site, P = this.params, r = this.rng, seat = null;
+    if (site.kind === 'wire') {
+      var w = this.dw[i], s0 = this.ds[i], L = site.cum[w][site.cum[w].length - 1], gi = this.gap[i];
+      var occ = [];
+      for (var q = 0; q < this.perches.length; q++) { var o = this.perches[q]; if (o.bird >= 0 && o.site === site.id && o.w === w) occ.push(o); }
+      for (var k = 0; k <= P.slotSearch / 0.06 && !seat; k++) {
+        var s = s0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.06;
+        if (s < 0.6 || s > L - 0.6) continue;
+        var ok = true;
+        for (q = 0; q < occ.length; q++) if (Math.abs(occ[q].s - s) < Math.max(gi, occ[q].g)) { ok = false; break; }
+        if (ok) {
+          var pt = this._wireAt(site, w, s, {}), sg = r() < 0.7 ? 1 : -1;
+          seat = { x: pt.x, y: pt.y + 0.09, z: pt.z, fx: -pt.dz * sg, fz: pt.dx * sg, w: w, s: s, g: gi, site: site.id };
+        }
+      }
+    } else {
+      var best = -1, bd = 1e18;
+      for (q = 0; q < site.seats.length; q++) {
+        var st = site.seats[q];
+        if (st.bird >= 0) continue;
+        var d2 = (st.x - this.px[i]) * (st.x - this.px[i]) + (st.y - this.py[i]) * (st.y - this.py[i]) + (st.z - this.pz[i]) * (st.z - this.pz[i]);
+        if (d2 < bd) { bd = d2; best = q; }
+      }
+      if (best >= 0) seat = site.seats[best];
+    }
+    if (!seat) return false;
+    seat.bird = i;
+    this.pseat[i] = this.perches.length; this.perches.push(seat);
+    return true;
+  };
+  // 空きがなかった鳥：舞い上がって空の群れへ戻る（しばらくは降りると決めない）
+  FlockEngine.prototype._abortDescent = function (i) {
+    this.pst[i] = 0; this.pseat[i] = -1; this.rj[i] = 6; this.anchor[i] = -1; this.cool[i] = 10;
+    this.vy[i] = Math.max(this.vy[i], 4);
+    if (this.site) this.site.fails++;
   };
   // 止まっている鳥（と降りている途中の鳥）を飛び立たせる。点 (x, y, z) に近い鳥から 0〜0.5 秒の遅れで、波のように
   FlockEngine.prototype.scarePerched = function (x, y, z) {
+    this.site = null;   // v0.10 降りる呼びかけも終わり
     for (var i = 0; i < this.n; i++) {
-      if (this.pst[i] === 1) { this.perches[this.pseat[i]].bird = -1; this.pst[i] = 0; this.stress[i] = 0.6; this.rj[i] = 15; this.anchor[i] = -1; }
+      if (this.pst[i] === 1) { if (this.pseat[i] >= 0) this.perches[this.pseat[i]].bird = -1; this.pseat[i] = -1; this.pst[i] = 0; this.stress[i] = 0.6; this.rj[i] = 15; this.anchor[i] = -1; }
       else if (this.pst[i] === 2) { this.pst[i] = 3; this.ptk[i] = Math.min(0.5, Math.hypot(this.px[i] - x, this.py[i] - y, this.pz[i] - z) / 120); }
     }
   };
@@ -451,6 +541,17 @@
       if (pred.R) predR = pred.R;
     }
     var floorF = P.groundY != null ? P.groundY + P.minAlt : -B[1];   // 平常時に保つ一番低い高さ
+    // v0.10 止まり木の呼びかけ中：群れは止まり木の上空を回るので、最低高度と境界をゆるめる
+    var site = this.site, siteOn = !!(site && site.active), bMul = 1;
+    if (site && site.active) {
+      site.t += dt;
+      // 止まり木の空き具合（止まっている鳥と降りている途中の鳥を引く）。空きが少ないほど降りると決めにくい
+      var taken = 0;
+      for (var q1 = 0; q1 < n; q1++) if (this.pst[q1] === 1 || (this.pst[q1] === 2 && this.perches[this.pseat[q1]].site === site.id) || (this.pst[q1] === 2 && site.kind === 'tree' && site.seats.indexOf(this.perches[this.pseat[q1]]) >= 0)) taken++;
+      site.free = clamp((site.cap - taken) / site.cap, 0, 1);
+      if (site.t > P.siteLife || site.fails > P.siteFails) { site.active = false; siteOn = false; }
+      else { floorF = Math.min(floorF, site.oy - 8); bMul = 0.15; }
+    }
     var envK = P.envScale || 1, flatten = P.flatten || 0;
 
     var pst = this.pst, rj = this.rj, perchedN = 0, scareP = false;
@@ -472,7 +573,7 @@
       var m = grid.cellKeys(x, y, z, keys);
       if (topoK > 0) {
         // v0.8 ムクドリ：分離は距離で、整列と結合は「近い順に topoK 羽」で決める
-        var kn = 0;
+        var kn = 0, nbDesc = 0;
         for (var q = 0; q < m; q++) {
           for (var j = head[keys[q]]; j !== -1; j = next[j]) {
             if (j === i) continue;
@@ -485,7 +586,7 @@
               var d = Math.sqrt(d2), w = 1 - d / rSepI;
               sX -= ddx / d * w; sY -= ddy / d * w; sZ -= ddz / d * w;
             }
-            if (pst[j]) continue;   // v0.9 降りている・止まっている鳥は、空の群れの仲間にしない
+            if (pst[j]) { if (pst[j] === 1) nbDesc++; continue; }   // v0.9 降りている・止まっている鳥は、空の群れの仲間にしない（v0.10 降り始めた鳥の数だけ数える）
             if (flock[j] === 0) mainNb = true;
             if (kn === topoK && d2 >= knD[kn - 1]) continue;
             if ((ddx * fx + ddy * fy + ddz * fz) < P.blindCos * Math.sqrt(d2)) continue;   // 真後ろの死角
@@ -569,6 +670,18 @@
           this.rj[i] -= dt;
         }
         else if (kOut > 0) { var kw = (kOut > 1 ? 1 : kOut) * P.wCenter; Gx += kx / kl * kw; Gy += ky / kl * kw; Gz += kz / kl * kw; }
+      }
+      // v0.10 止まり木の呼びかけ中：上空を回り、降りると決める（降り始めた仲間が近くに多いほど決めやすい）
+      if (siteOn && flock[i] === 0 && !(this.rj[i] > 0)) {
+        var ox_ = site.ox - x, oz_ = site.oz - z, oh = Math.sqrt(ox_ * ox_ + oz_ * oz_) || 1, rad = clamp((oh - P.siteR) / P.siteR, -1, 1);
+        Gx += ox_ / oh * rad * 1.2 - oz_ / oh * 0.9 * site.dir; Gz += oz_ / oh * rad * 1.2 + ox_ / oh * 0.9 * site.dir;
+        Gy += clamp((site.oy - y) / 8, -1, 1) * 1.0;
+        if (this.cool[i] > 0) this.cool[i] -= dt;
+        else if (site.t > P.landDelay) {
+          var above = oh < P.siteR * 1.4 && Math.abs(y - site.oy) < 10, nearSite = oh < P.siteR * 2.5;
+          var rate = nearSite ? (P.landBase + (above ? P.landNear : 0) + P.landQuorum * Math.min(1, nbDesc * nbDesc / 4)) * (site.free > 0.04 ? Math.min(1, site.free * 1.5) : 0) : 0;   // 止まり木の近くに来てから決める。空きが少ないと決めにくい
+          if (rng() < rate * dt) { this._startDescent(i); continue; }
+        }
       }
       if (mainN > 0 && (flock[i] !== 0 || this.iso[i] > 1.5)) {
         var hx = cxm - x, hy = (cym - y) * 0.5, hz = czm - z, hl = Math.sqrt(hx * hx + hy * hy + hz * hz);
@@ -712,9 +825,10 @@
       var wA = P.wAli * (1 - 0.6 * kSep) * calm * (1 + 0.6 * si) * (1 - 0.65 * fe);   // 餌に興奮すると隊列が崩れる
       var wC = P.wCoh * (1 - 0.85 * kSep) * calm * (1 - 0.5 * si) * (1 - 0.6 * fe);
       var wE = P.wEnv * (1 - urgAll);
-      var Dx = P.wInertia * fx + P.wSep * (1 + si) * sX + wA * Ax + wC * Cx + P.wTouch * Tx + P.wObs * Ox + wE * Ex + P.wBound * Bx + P.wGather * Gx;
-      var Dy = P.wInertia * fy + P.wSep * (1 + si) * sY + wA * Ay + wC * Cy + P.wTouch * Ty + P.wObs * Oy + wE * Ey + P.wBound * By + P.wGather * Gy;
-      var Dz = P.wInertia * fz + P.wSep * (1 + si) * sZ + wA * Az + wC * Cz + P.wTouch * Tz + P.wObs * Oz + wE * Ez + P.wBound * Bz + P.wGather * Gz;
+      var wB = P.wBound * bMul;
+      var Dx = P.wInertia * fx + P.wSep * (1 + si) * sX + wA * Ax + wC * Cx + P.wTouch * Tx + P.wObs * Ox + wE * Ex + wB * Bx + P.wGather * Gx;
+      var Dy = P.wInertia * fy + P.wSep * (1 + si) * sY + wA * Ay + wC * Cy + P.wTouch * Ty + P.wObs * Oy + wE * Ey + wB * By + P.wGather * Gy;
+      var Dz = P.wInertia * fz + P.wSep * (1 + si) * sZ + wA * Az + wC * Cz + P.wTouch * Tz + P.wObs * Oz + wE * Ez + wB * Bz + P.wGather * Gz;
       if (fe > 0.01 || Fx || Fy || Fz) {   // 餌へ向かう力＋興奮による小刻みな方向転換
         var wF = P.wFood * (0.35 + 0.65 * fe) * calm, jit = fe * 0.7;
         Dx += wF * Fx + jit * (rng() - 0.5) * 2; Dy += wF * Fy + jit * (rng() - 0.5); Dz += wF * Fz + jit * (rng() - 0.5) * 2;
@@ -793,7 +907,7 @@
       if (ins && !this.inside[i]) this.intrusions++;
       this.inside[i] = ins;
       // 海底より下へは出さない（最後の保険。v0.6）
-      var flMin = P.groundY != null ? floorF : P.bodyRadius - P.bounds[1];
+      var flMin = P.groundY != null ? floorF : P.bodyRadius - P.bounds[1];   // v0.10 呼びかけ中は floorF が下がっている
       if (py[i] < flMin) { if (Y < py[i]) { Y = py[i]; if (VY < 0) VY = 0; } }   // v0.9 止まり木から飛び立った鳥：下がらずに上昇させる
       else if (Y < flMin) { Y = flMin; if (VY < 0) VY = 0; }
       // NaN・無限大のガード
@@ -825,11 +939,28 @@
 
   // v0.9 止まり木の鳥を1歩進める。ハヤブサが近づいたら true を返す（全員を飛び立たせる合図）
   FlockEngine.prototype._perchStep = function (i, dt, pred) {
-    var P = this.params, st = this.pst[i], seat = this.perches[this.pseat[i]];
+    var P = this.params, st = this.pst[i], seat = this.pseat[i] >= 0 ? this.perches[this.pseat[i]] : null;
     var x = this.px[i], y = this.py[i], z = this.pz[i];
     this.ppx[i] = x; this.ppy[i] = y; this.ppz[i] = z;
     this.nstress[i] = this.stress[i] = 0; this.nfeed[i] = 0;
     var scared = !!(pred && st !== 3 && Math.hypot(pred.x - x, pred.y - y, pred.z - z) < P.perchScareR);
+    if (st === 1 && !seat) {   // v0.10 降りる途中（席はまだない）：止まり木へ向かい、近くまで来たら空きを探す
+      var site = this.site;
+      if (!site) { this._abortDescent(i); return scared; }
+      var tx, ty, tz;
+      if (site.kind === 'wire') { var wq = this._wireAt(site, this.dw[i], this.ds[i], this._nq || (this._nq = {})); tx = wq.x; ty = wq.y + 0.09; tz = wq.z; }   // 決めたときに選んだ、空いていそうな所へ
+      else { tx = this.dtx[i]; ty = this.dty[i]; tz = this.dtz[i]; }
+      var ddx = tx - x, ddy = ty - y, ddz = tz - z, dd = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
+      if (dd < P.claimR) { if (!this._claim(i)) { this._abortDescent(i); return scared; } return scared; }
+      var lift0 = dd > 8 ? Math.min(dd * 0.2 * this.resp[i], 7) : 0, ty0 = ddy + lift0, tl0 = Math.sqrt(ddx * ddx + ty0 * ty0 + ddz * ddz) || 1;
+      var vmax = P.cruise * (0.55 + 0.45 * (this.resp[i] - 0.75) * 2);   // 降りる速さは鳥ごとに違う（巡航の55〜100%）。着く時刻がばらける
+      var sp0 = clamp(dd * 0.9, 3, vmax), k0 = Math.min(1, dt * 2.5);   // 近づくと減速
+      this.vx[i] += (ddx / tl0 * sp0 - this.vx[i]) * k0; this.vy[i] += (ty0 / tl0 * sp0 - this.vy[i]) * k0; this.vz[i] += (ddz / tl0 * sp0 - this.vz[i]) * k0;
+      var ny0 = y + this.vy[i] * dt;
+      if (ny0 < P.groundY + P.bodyRadius) ny0 = P.groundY + P.bodyRadius;
+      this.px[i] = x + this.vx[i] * dt; this.py[i] = ny0; this.pz[i] = z + this.vz[i] * dt;
+      return scared;
+    }
     if (st === 1) {   // 席へ向かう：遠いうちは席の少し上を狙い、ゆるい弧を描いて降りる
       var dx = seat.x - x, dy = seat.y - y, dz = seat.z - z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (d < 0.3) { this.pst[i] = 2; this.px[i] = seat.x; this.py[i] = seat.y; this.pz[i] = seat.z; this.vx[i] = seat.fx * 0.01; this.vy[i] = 0; this.vz[i] = seat.fz * 0.01; return scared; }

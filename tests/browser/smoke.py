@@ -161,8 +161,8 @@ async def main():
                     n1 = await page.evaluate("""async ([x,y]) => { const cv=document.getElementById('scene'), e=FLOCK.debugEngine;
                       const ev=t=>cv.dispatchEvent(new PointerEvent(t,{pointerId:1,clientX:x,clientY:y,bubbles:true,pointerType:'mouse',button:0}));
                       ev('pointerdown'); ev('pointerup'); await new Promise(r=>setTimeout(r,300));
-                      let c=0; for(let i=0;i<e.n;i++) if(e.pst[i]) c++; return c; }""", pt)
-                    check('止まり木：電線をタップすると鳥が降り始める', n1 > 0, f'降りる鳥={n1}')
+                      return e.site && e.site.active && e.site.kind === 'wire' ? 1 : 0; }""", pt)
+                    check('止まり木：電線をタップすると、群れが止まり木へ向かう（上空を回り始める）', n1 > 0)
                     sky = await page.evaluate("FLOCK.debugPick(innerWidth/2, 120)")
                     check('止まり木：空は空と判定される', sky == 'sky', sky)
                 # 切り替え：イワシに戻し、設定が保たれることを確かめる

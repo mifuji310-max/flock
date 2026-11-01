@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK starling view v0.18（設計書 v0.6 §16）
+ * FLOCK starling view v0.19（設計書 v0.7 §16）
+ *   v0.19: 止まり木は席を作らず、電線の形と木の中の空き場所をエンジンへ渡す
  *   v0.18: 夕方の空・雲・かすみ・地面を明るく
  *   v0.17: 止まり木（電線と木の席・タップの判定・止まった鳥は翼をたたむ）
  *   v0.16: 観る人を近づけたので街灯を奥へ — ムクドリモードの描画（Three.js r128）
@@ -410,25 +411,16 @@
     }
 
     /* ---------------- 止まり木（v0.17 / 設計書 §16.14） ----------------
-     * 電線：タップした区間（電柱から電柱まで）の3本に 0.35 m 間隔の席。鳥は電線と直角の向きにそろう
-     * 木　：タップした1本の樹冠の中と枝先に約120席 */
-    var SEAT_GAP = 0.35, BIRD_UP = 0.09;
-    function wireSeats(k) {
-      var a = POLES[k], b = POLES[k + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]), out = [], r = makeRng(900 + k);
-      var px_ = -(b[1] - a[1]) / L, pz_ = (b[0] - a[0]) / L;   // 電線と直角の水平の向き
-      for (var w = 0; w < 3; w++) for (var d = 1.2; d < L - 1.2; d += SEAT_GAP) {
-        var q = wirePt(k, w, d / L), sg = r() < 0.7 ? 1 : -1;
-        out.push({ x: q[0], y: q[1] + BIRD_UP, z: q[2], fx: px_ * sg, fz: pz_ * sg });
-      }
-      return out;
-    }
+     * 電線：タップした区間（電柱から電柱まで）の3本の形をエンジンへ渡す。止まる場所は、着いた鳥がその場で空きを探して決める（v0.19）
+     * 木　：タップした1本の樹冠の中と枝先の、約120か所の空き場所 */
+    var treeSeatCache = {};   // 木の中の空き場所は木ごとに1つ（止まっている鳥の情報を保つ）
     function treeSeats(k) {
       var T = TREES[k], out = [], r = makeRng(700 + k);
       for (var q = 0; q < 120; q++) {
         var a = r() * Math.PI * 2, el, rr;
         if (q < 40) { el = 0.45 + r() * 0.9; rr = 1.0 + r() * 0.07; }   // 3分の1は樹冠の上の枝先（空を背にして見える）
         else { el = (r() - 0.45) * 2.4; rr = 0.35 + r() * 0.5; }         // 残りは葉の中（隠れる）
-        out.push({ x: T.x + Math.cos(a) * Math.cos(el) * T.r * rr, y: T.y + Math.sin(el) * T.r * 0.75 * rr, z: T.z + Math.sin(a) * Math.cos(el) * T.r * rr, fx: Math.cos(a + 1.6), fz: Math.sin(a + 1.6) });
+        out.push({ x: T.x + Math.cos(a) * Math.cos(el) * T.r * rr, y: T.y + Math.sin(el) * T.r * 0.75 * rr, z: T.z + Math.sin(a) * Math.cos(el) * T.r * rr, fx: Math.cos(a + 1.6), fz: Math.sin(a + 1.6), bird: -1 });
       }
       return out;
     }
@@ -463,8 +455,14 @@
         if (dd < 12 && dd < bd) { bd = dd; best = { kind: 'tree', k: t }; }
       }
       if (!best) return null;
-      best.seats = best.kind === 'wire' ? wireSeats(best.k) : treeSeats(best.k);
-      return best;
+      // v0.19 エンジンへ渡す止まり木（席は先に決めない。電線は形だけ、木は中の空き場所の一覧）
+      if (best.kind === 'wire') {
+        var ws = [];
+        for (var w2 = 0; w2 < 3; w2++) { var pts = []; for (var s2 = 0; s2 <= 32; s2++) pts.push(wirePt(best.k, w2, s2 / 32)); ws.push(pts); }
+        return { kind: 'wire', key: 'w' + best.k, wires: ws };
+      }
+      var T2 = TREES[best.k];
+      return { kind: 'tree', key: 't' + best.k, x: T2.x, y: T2.y, z: T2.z, r: T2.r, seats: treeSeatCache[best.k] || (treeSeatCache[best.k] = treeSeats(best.k)) };
     }
 
     return {
@@ -473,7 +471,7 @@
       setVisible: function (v) { group.visible = v; if (!v) { falconApi.clear(); } },
       update: update, setTag: setTag, falcon: falconApi,
       setLit: function (v) { cityU.uLit.value = v; lamps.userData.mat.opacity = Math.max(0, Math.min(1, (v - 0.1) * 2.5)); },
-      reset: function () { renderedN = 0; falconApi.clear(); }
+      reset: function () { renderedN = 0; falconApi.clear(); treeSeatCache = {}; }
     };
   };
 })(typeof window !== 'undefined' ? window : this);

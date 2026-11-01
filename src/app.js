@@ -1,5 +1,5 @@
 /* =====================================================================
- * FLOCK app v0.18（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.19（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
  *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作
  * ===================================================================== */
 (function () {
@@ -862,7 +862,7 @@
       else if (e.type === 'pointerup') {
         // v0.17 止まり木：電線や木をタップしたら、そこへ降りる。空をタップしたらハヤブサ（止まっている鳥は飛び立つ）
         var hit = starView.pickPerch(fal.x0, fal.y0, camera, canvas.getBoundingClientRect());
-        if (hit) engine.perchAt(hit.seats);
+        if (hit) engine.perchSite(hit);   // v0.19 群れは上空を回ってから、決断が広がって降りる
         else if (screenToPlane(fal.x0, fal.y0, camTarget, tmpV)) { starView.falcon.dive(tmpV.clone(), camera.position); engine.scarePerched(tmpV.x, tmpV.y, tmpV.z); }
       }
     }
