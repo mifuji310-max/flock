@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK simulation engine  v0.7
+ * FLOCK simulation engine  v0.8
+ *   v0.8 2026-11-01 ムクドリ（species: 'starling'）：近い順の7羽で整列・結合、ハヤブサから逃げる、平たい群れ、最低高度
  *   v0.7 2026-11-01 成長の計画を2000匹まで延長（上限は maxCount で決まる）
  *   v0.6 2026-11-01 海底より下に餌をまかない・魚が海底より下へ潜らない
  *   v0.5 2026-10-31 餌やり：沈む餌粒、餌への誘引・興奮（feed）の近傍伝播・捕食
@@ -19,7 +20,7 @@
 (function (root) {
   'use strict';
 
-  var ENGINE_VERSION = '0.7';
+  var ENGINE_VERSION = '0.8';
 
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -70,6 +71,37 @@
   };
 
   /* ------------------------------------------------------------------ */
+  /* ムクドリ（v0.8〜）の既定パラメータ。1ワールド単位 = 1 m。           */
+  /* 全長 ≒ 0.22 m。範囲の中心は地上 50 m（地面は y = −50）              */
+  /*   ・整列と結合は「近い順に topoK 羽」（Ballerini 2008）             */
+  /*   ・ハヤブサ（predator）から逃げ、驚きは近い順の仲間へ速く伝わる     */
+  /* ------------------------------------------------------------------ */
+  var STARLING = Object.assign({}, SARDINE, {
+    species: 'starling',
+    bodyLen: 0.22, bodyRadius: 0.08,
+    cruise: 10, minSpeed: 7, panicSpeed: 18,
+    maxAccel: 5, panicAccel: 30,
+    maxTurn: 1.6, panicTurn: 5.0,
+    maxPitch: 0.45, panicPitch: 0.7,
+    rSep: 1.6, rAli: 3, rCoh: 3,         // rCoh は近傍を探す範囲（空間ハッシュの格子の大きさ）。最近接は約1.3 m になる
+    topoK: 7,
+    blindCos: -0.6,
+    wSep: 2.4, wAli: 1.8, wCoh: 0.9,
+    wTouch: 9.0, wEnv: 0.5, wBound: 1.4, wGather: 1.0, wCenter: 0.6,   // wCenter：群れの中心から離れた個体を弱く戻す
+    noise: 0.12,
+    alarm: 14, alarmGain: 0.9, stressDecay: 0.9,
+    speedMatch: 0.4,
+    flatten: 0.9,                        // 上下の動きを抑えて平たい群れにする
+    envScale: 0.25,                      // 環境の流れの空間スケール（広い空に合わせる）
+    spawnScale: 1.9,                     // 生まれたときの群れの広がり
+    predR: 14, predLead: 0.3,            // ハヤブサを怖がる距離（m）、ハヤブサの何秒先の位置を見て逃げるか
+    groundY: -50, minAlt: 15, floorGuard: 6,   // 地面、平常時の最低高度、高度を保ち始める余裕
+    growMax: 80,
+    bounds: [60, 20, 60]
+  });
+  var SPECIES = { sardine: SARDINE, starling: STARLING };
+
+  /* ------------------------------------------------------------------ */
   function SpatialHashGrid(cap, cell) {
     this.size = 4096; this.mask = 4095;
     this.head = new Int32Array(this.size);
@@ -104,7 +136,8 @@
   function FlockEngine(opts) {
     opts = opts || {};
     this.cap = opts.capacity || 640;
-    this.params = Object.assign({}, SARDINE, opts.params || {});
+    this.species = SPECIES[opts.species] ? opts.species : 'sardine';
+    this.params = Object.assign({}, SPECIES[this.species], opts.params || {});
     var C = this.cap;
     this.px = new Float32Array(C); this.py = new Float32Array(C); this.pz = new Float32Array(C);
     this.vx = new Float32Array(C); this.vy = new Float32Array(C); this.vz = new Float32Array(C);
@@ -129,6 +162,8 @@
     this.inside = new Uint8Array(C);
     this.grid = new SpatialHashGrid(C, this.params.rCoh);
     this._keys = new Int32Array(27);
+    this._knD = new Float32Array(16); this._knJ = new Int32Array(16);   // 近い順の近傍（ムクドリ）
+    this.predator = null;                // ハヤブサ { x, y, z, vx, vy, vz, R }（入力層が設定。いないときは null）
     this.obstacles = [];
     this.landmarks = [];               // 固定の目印（岩など）。ユーザーは編集できない
     this.repulsors = [];                 // 入力層が毎ステップ設定
@@ -148,7 +183,7 @@
     this.stats = { P: 0, meanNN: 0, minNN: 0, radius: 0, components: 1, maxStress: 0, meanSpeed: 0 };
     var count = initial != null ? initial : (this.growthEnabled ? 12 : 100);
     var r = this.rng, P = this.params;
-    var R0 = 0.55 * Math.cbrt(count) + 0.4;
+    var R0 = (0.55 * Math.cbrt(count) + 0.4) * (P.spawnScale || 1);
     var hx = r() * 2 - 1, hz = r() * 2 - 1, hl = Math.hypot(hx, hz) || 1; hx /= hl; hz /= hl;
     for (var i = 0; i < count; i++) {
       var p = this._randInBall(R0);
@@ -159,6 +194,14 @@
     this.obstacles.length = 0;
     this.foodN = 0; this.eaten = 0; this.feed.fill(0);
     this.analyze();
+  };
+
+  // v0.8: 生きものの種類を切り替える（パラメータを入れ替えて最初からやり直す）
+  FlockEngine.prototype.setSpecies = function (species, seed, initial) {
+    this.species = SPECIES[species] ? species : 'sardine';
+    this.params = Object.assign({}, SPECIES[this.species]);
+    this.predator = null; this.repulsors = []; this.landmarks = [];
+    this.reset(seed != null ? seed : (Date.now() & 0x7fffffff), initial);
   };
 
   FlockEngine.prototype._randInBall = function (R) {
@@ -259,35 +302,39 @@
   /* ---------------- 成長（小集団の合流） ---------------- */
   // v0.7: 500匹より先も合流を続ける（実際の上限は maxCount＝画質の設定で決まる）
   var GROWTH_PLAN = [[0, 12], [30, 30], [90, 90], [180, 220], [270, 500], [420, 1000], [600, 2000]];
-  function growthTarget(t) {
-    for (var i = 1; i < GROWTH_PLAN.length; i++) {
-      var a = GROWTH_PLAN[i - 1], b = GROWTH_PLAN[i];
+  // v0.8: ムクドリは日没までに合流し終えるよう、早めの計画（設計書 §16.7）
+  var STARLING_PLAN = [[0, 12], [20, 40], [60, 120], [120, 300], [200, 600], [280, 1000], [360, 2000]];
+  function growthTarget(t, plan) {
+    plan = plan || GROWTH_PLAN;
+    for (var i = 1; i < plan.length; i++) {
+      var a = plan[i - 1], b = plan[i];
       if (t <= b[0]) return a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
     }
-    return GROWTH_PLAN[GROWTH_PLAN.length - 1][1];
+    return plan[plan.length - 1][1];
   }
   FlockEngine.prototype._updateGrowth = function (dt) {
     var g = this.growth, r = this.rng, P = this.params;
     g.t += dt;
     if (g.t < g.nextAt) return;
     var limit = Math.min(this.maxCount, this.cap);
-    var target = Math.min(limit, growthTarget(g.t + 12));
+    var target = Math.min(limit, growthTarget(g.t + 12, this.species === 'starling' ? STARLING_PLAN : GROWTH_PLAN));
     var want = Math.round(target - this.n);
     if (want < 3) { g.nextAt = g.t + 2; return; }
-    var size = clamp(want, 4, 46);
+    var size = clamp(want, 4, P.growMax || 46);
     // 出現位置：画面外。左右（60%）または奥のフォグの中（40%）
     var c = this.centroid, cx, cy, cz;
     var side = r() < 0.6;
-    var dist = this.viewHalf * 1.25 + 3 + r() * 3;
-    if (side) { var s = r() < 0.5 ? -1 : 1; cx = c[0] + s * dist; cz = c[2] + (r() - 0.5) * 6; }
-    else { cx = c[0] + (r() - 0.5) * 8; cz = c[2] - dist * 1.4; }
-    cy = c[1] + (r() - 0.5) * 4;
+    var sc = P.spawnScale || 1;
+    var dist = this.viewHalf * 1.25 + (3 + r() * 3) * sc;
+    if (side) { var s = r() < 0.5 ? -1 : 1; cx = c[0] + s * dist; cz = c[2] + (r() - 0.5) * 6 * sc; }
+    else { cx = c[0] + (r() - 0.5) * 8 * sc; cz = c[2] - dist * 1.4; }
+    cy = c[1] + (r() - 0.5) * 4 * sc;
     // 境界の外側すぎる位置は内側へ寄せる
     var B = P.bounds, e = Math.hypot(cx / B[0], cy / B[1], cz / B[2]);
     if (e > 1.15) { var f = 1.15 / e; cx *= f; cy *= f; cz *= f; }
     var dx = c[0] - cx, dy = (c[1] - cy) * 0.3, dz = c[2] - cz, dl = Math.hypot(dx, dy, dz) || 1;
     dx /= dl; dy /= dl; dz /= dl;
-    var R0 = 0.45 * Math.cbrt(size) + 0.3, id = g.seq++;
+    var R0 = (0.45 * Math.cbrt(size) + 0.3) * sc, id = g.seq++;
     for (var i = 0; i < size; i++) {
       var p = this._randInBall(R0);
       this.addFish(cx + p[0], cy + p[1] * 0.6, cz + p[2],
@@ -336,8 +383,18 @@
       }
     }
     var obs = prims;
-    var cosPitch = P.maxPitch;
+    var cosPitch = P.maxPitch, panicPitch = P.panicPitch || P.maxPitch;
     var mainR = this.spread * 1.35 + 1.0;
+    // v0.8 ムクドリ：近い順の近傍・ハヤブサ・地面・平たさ
+    var topoK = P.topoK | 0, knD = this._knD, knJ = this._knJ;
+    var pred = this.predator, predR = P.predR || 0;
+    if (pred) {
+      var pvl = Math.sqrt(pred.vx * pred.vx + pred.vy * pred.vy + pred.vz * pred.vz);
+      var pdx = pvl > 1e-3 ? pred.vx / pvl : 0, pdy = pvl > 1e-3 ? pred.vy / pvl : 0, pdz = pvl > 1e-3 ? pred.vz / pvl : 0;
+      if (pred.R) predR = pred.R;
+    }
+    var floorF = P.groundY != null ? P.groundY + P.minAlt : -B[1];   // 平常時に保つ一番低い高さ
+    var envK = P.envScale || 1, flatten = P.flatten || 0;
 
     for (var i = 0; i < n; i++) {
       var x = px[i], y = py[i], z = pz[i];
@@ -354,6 +411,37 @@
       var cX = 0, cY = 0, cZ = 0, cN = 0;
       var spdSum = 0, spdN = 0, nbStress = 0, nbFeed = 0, minD2 = 1e9, cnt = 0, mainNb = false;
       var m = grid.cellKeys(x, y, z, keys);
+      if (topoK > 0) {
+        // v0.8 ムクドリ：分離は距離で、整列と結合は「近い順に topoK 羽」で決める
+        var kn = 0;
+        for (var q = 0; q < m; q++) {
+          for (var j = head[keys[q]]; j !== -1; j = next[j]) {
+            if (j === i) continue;
+            var ddx = px[j] - x, ddy = py[j] - y, ddz = pz[j] - z;
+            var d2 = ddx * ddx + ddy * ddy + ddz * ddz;
+            if (d2 > rCoh2) continue;
+            if (d2 < 1e-8) { sX += this.sx[i]; sY += this.sy[i]; sZ += this.sz[i]; continue; }
+            if (d2 < minD2) minD2 = d2;
+            if (d2 < rSep2) {
+              var d = Math.sqrt(d2), w = 1 - d / rSepI;
+              sX -= ddx / d * w; sY -= ddy / d * w; sZ -= ddz / d * w;
+            }
+            if (flock[j] === 0) mainNb = true;
+            if (kn === topoK && d2 >= knD[kn - 1]) continue;
+            if ((ddx * fx + ddy * fy + ddz * fz) < P.blindCos * Math.sqrt(d2)) continue;   // 真後ろの死角
+            var pos = kn < topoK ? kn++ : topoK - 1;
+            while (pos > 0 && knD[pos - 1] > d2) { knD[pos] = knD[pos - 1]; knJ[pos] = knJ[pos - 1]; pos--; }
+            knD[pos] = d2; knJ[pos] = j;
+          }
+        }
+        for (var kq = 0; kq < kn; kq++) {
+          var jj = knJ[kq];
+          var vjx = vx[jj], vjy = vy[jj], vjz = vz[jj], vjs = Math.sqrt(vjx * vjx + vjy * vjy + vjz * vjz);
+          if (vjs > 1e-5) { aX += vjx / vjs; aY += vjy / vjs; aZ += vjz / vjs; aN++; spdSum += vjs; spdN++; }
+          if (stress[jj] > nbStress) nbStress = stress[jj];
+          cX += px[jj] - x; cY += py[jj] - y; cZ += pz[jj] - z; cN++;
+        }
+      } else
       outer:
       for (var q = 0; q < m; q++) {
         for (var j = head[keys[q]]; j !== -1; j = next[j]) {
@@ -400,12 +488,18 @@
       var Cx = 0, Cy = 0, Cz = 0;
       if (cN > 0) {
         var gx = cX / cN, gy = cY / cN, gz = cZ / cN, gl = Math.sqrt(gx * gx + gy * gy + gz * gz);
-        if (gl > 1e-5) { var ramp = gl / (P.rCoh * 0.5); if (ramp > 1) ramp = 1; Cx = gx / gl * ramp; Cy = gy / gl * ramp; Cz = gz / gl * ramp; }
+        if (gl > 1e-5) { var ramp = gl / (topoK ? P.rSep * 1.5 : P.rCoh * 0.5); if (ramp > 1) ramp = 1; Cx = gx / gl * ramp; Cy = gy / gl * ramp; Cz = gz / gl * ramp; }
         this.iso[i] = 0;
       } else this.iso[i] += dt;
 
       // 接近中の小集団・孤立個体の弱い再合流補助
       var Gx = 0, Gy = 0, Gz = 0;
+      // v0.8 ムクドリ：群れの中心から離れた個体ほど、弱く中心へ寄る（分かれた群れが再び1つに戻る）
+      if (P.wCenter && mainN > 0 && flock[i] === 0) {
+        var kx = cxm - x, ky = (cym - y) * 0.3, kz = czm - z, kl = Math.sqrt(kx * kx + ky * ky + kz * kz);
+        var kOut = kl / (this.spread * 1.2 + 4) - 1;
+        if (kOut > 0) { var kw = (kOut > 1 ? 1 : kOut) * P.wCenter; Gx += kx / kl * kw; Gy += ky / kl * kw; Gz += kz / kl * kw; }
+      }
       if (mainN > 0 && (flock[i] !== 0 || this.iso[i] > 1.5)) {
         var hx = cxm - x, hy = (cym - y) * 0.5, hz = czm - z, hl = Math.sqrt(hx * hx + hy * hy + hz * hz);
         if (hl > 1e-3) {
@@ -441,6 +535,22 @@
         }
         Tx += ex / el * str; Ty += ey / el * str; Tz += ez / el * str;
         if (str > tU) tU = str;
+      }
+
+      // 6a'. ハヤブサ（v0.8）：通り道から横へ、ハヤブサから遠ざかる向きへ逃げる
+      if (pred) {
+        // 少し先（predLead 秒後）のハヤブサの位置を見て逃げる（速いハヤブサに間に合うように）
+        var rx = x - pred.x - pred.vx * P.predLead, ry = y - pred.y - pred.vy * P.predLead, rz = z - pred.z - pred.vz * P.predLead, rd2 = rx * rx + ry * ry + rz * rz;
+        if (rd2 < predR * predR) {
+          var rd = Math.sqrt(rd2) || 1e-4, along = rx * pdx + ry * pdy + rz * pdz;
+          var lx2 = rx - along * pdx, ly2 = ry - along * pdy, lz2 = rz - along * pdz;
+          var ex2 = lx2 + rx / rd * 0.6 * rd, ey2 = ly2 + ry / rd * 0.6 * rd, ez2 = lz2 + rz / rd * 0.6 * rd;
+          var el2 = Math.sqrt(ex2 * ex2 + ey2 * ey2 + ez2 * ez2);
+          if (el2 < 1e-4) { ex2 = this.sx[i]; ey2 = this.sy[i]; ez2 = this.sz[i]; el2 = 1; }
+          var pstr = smoothstep(predR, predR * 0.25, rd);
+          Tx += ex2 / el2 * pstr; Ty += ey2 / el2 * pstr; Tz += ez2 / el2 * pstr;
+          if (pstr > tU) tU = pstr;
+        }
       }
 
       // 6b. 障害物の予測回避
@@ -484,9 +594,10 @@
       }
 
       // 6c. 環境流（低振幅・時間変化する3Dフローフィールド）
-      var Ex = 0.5 * (Math.sin(0.21 * y + 0.13 * t + 1.3) + Math.sin(0.17 * z - 0.071 * t));
-      var Ey = 0.2 * (Math.sin(0.19 * x + 0.11 * t + 2.1) + Math.sin(0.23 * z + 0.053 * t));
-      var Ez = 0.5 * (Math.sin(0.18 * x - 0.093 * t + 0.4) + Math.sin(0.15 * y + 0.12 * t + 0.7));
+      var ex_ = x * envK, ey_ = y * envK, ez_ = z * envK;
+      var Ex = 0.5 * (Math.sin(0.21 * ey_ + 0.13 * t + 1.3) + Math.sin(0.17 * ez_ - 0.071 * t));
+      var Ey = 0.2 * (Math.sin(0.19 * ex_ + 0.11 * t + 2.1) + Math.sin(0.23 * ez_ + 0.053 * t));
+      var Ez = 0.5 * (Math.sin(0.18 * ex_ - 0.093 * t + 0.4) + Math.sin(0.15 * ey_ + 0.12 * t + 0.7));
 
       // 6d. ソフト境界（楕円体。近づくほど内向き）
       var Bx = 0, By = 0, Bz = 0;
@@ -497,8 +608,10 @@
         Bx = bx / bl * bs; By = by / bl * bs; Bz = bz / bl * bs;
       }
       // 6d'. 海底（v0.6）：海底に近づくと上向きに舵を切る（海底より下へ潜らない）
-      var hFl = y + B[1];
+      var hFl = y - floorF;
       if (hFl < P.floorGuard) By += 1.5 * (1 - (hFl > 0 ? hFl : 0) / P.floorGuard);
+      // 平たい群れ（v0.8 ムクドリ）：上下の動きを弱める
+      if (flatten) By -= fy * flatten;
 
       // 6e. 餌：近くの餌粒へ向かう。興奮（feed）は近傍へ伝わり、遠くの仲間も餌の方へ集まる
       var Fx = 0, Fy = 0, Fz = 0, fe = feed[i], feT = nbFeed * 0.8;
@@ -556,9 +669,10 @@
         var ca = Math.cos(turnMax), sa = Math.sin(turnMax);
         nx = fx * ca + ppx_ * sa; ny = fy * ca + ppy_ * sa; nzz = fz * ca + ppz_ * sa;
       }
-      // 魚は真上・真下へは泳がない
-      if (ny > cosPitch || ny < -cosPitch) {
-        ny = ny > 0 ? cosPitch : -cosPitch;
+      // 魚は真上・真下へは泳がない（ムクドリは驚いたときだけ上下に大きく向ける）
+      var pitchI = cosPitch + (panicPitch - cosPitch) * panic;
+      if (ny > pitchI || ny < -pitchI) {
+        ny = ny > 0 ? pitchI : -pitchI;
         var hz2 = Math.sqrt(nx * nx + nzz * nzz);
         var hs = Math.sqrt(1 - ny * ny) / (hz2 > 1e-6 ? hz2 : 1);
         if (hz2 < 1e-6) { nx = fx; nzz = fz; hz2 = Math.sqrt(nx * nx + nzz * nzz) || 1; hs = Math.sqrt(1 - ny * ny) / hz2; }
@@ -607,7 +721,7 @@
       if (ins && !this.inside[i]) this.intrusions++;
       this.inside[i] = ins;
       // 海底より下へは出さない（最後の保険。v0.6）
-      var flMin = P.bodyRadius - P.bounds[1];
+      var flMin = P.groundY != null ? floorF : P.bodyRadius - P.bounds[1];
       if (Y < flMin) { Y = flMin; if (VY < 0) VY = 0; }
       // NaN・無限大のガード
       if (!(isFinite(X) && isFinite(Y) && isFinite(Z) && isFinite(VX) && isFinite(VY) && isFinite(VZ))) {
@@ -682,7 +796,7 @@
     return st;
   };
 
-  var api = { FlockEngine: FlockEngine, SARDINE: SARDINE, smoothstep: smoothstep, growthTarget: growthTarget, VERSION: ENGINE_VERSION };
+  var api = { FlockEngine: FlockEngine, SARDINE: SARDINE, STARLING: STARLING, SPECIES: SPECIES, smoothstep: smoothstep, growthTarget: growthTarget, VERSION: ENGINE_VERSION };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.FLOCK = api;
 })(typeof window !== 'undefined' ? window : this);

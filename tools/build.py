@@ -1,6 +1,6 @@
 """FLOCK ビルドスクリプト
 
-src/shell.html + src/engine.js + src/app.js を1つのHTMLにまとめ、次の2つを書き出す。
+src/shell.html + src/engine.js + src/starling.js + src/app.js を1つのHTMLにまとめ、次の2つを書き出す。
   - index.html                 … GitHub Pages で公開する最新版
   - releases/flock_v{版数}.html … 版ごとの保存用（既存の版は上書きしない）
 
@@ -43,12 +43,14 @@ def main():
     src = ROOT / 'src'
     shell = (src / 'shell.html').read_text(encoding='utf-8')
     engine = (src / 'engine.js').read_text(encoding='utf-8')
+    starling = (src / 'starling.js').read_text(encoding='utf-8')
     app = (src / 'app.js').read_text(encoding='utf-8')
     if f'FLOCK v{version}</b>' not in shell:
         print(f'警告: src/shell.html の設定画面の版数表示が v{version} になっていません（.ver の段落を更新してください）')
 
     page = wrap(shell + '\n<script src="' + THREE_CDN + '"></script>\n'
-                '<script>\n' + engine + '\n</script>\n<script>\n' + app + '\n</script>\n')
+                '<script>\n' + engine + '\n</script>\n<script>\n' + starling + '\n</script>\n'
+                '<script>\n' + app + '\n</script>\n')
 
     (ROOT / 'index.html').write_text(page, encoding='utf-8', newline='\n')   # Windows でも改行は LF
     release = ROOT / 'releases' / f'flock_v{version}.html'

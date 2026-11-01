@@ -1,10 +1,17 @@
 <title>FLOCK</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!--
-  FLOCK 群れシミュレータ  プロトタイプ v0.14「TOUCH & AVOID」
-  準拠：FLOCK 群れシミュレータ 開発設計書 v0.4（2026-11-01）
+  FLOCK 群れシミュレータ  プロトタイプ v0.15「TOUCH & AVOID」
+  準拠：FLOCK 群れシミュレータ 開発設計書 v0.5（2026-11-01）
 
   更新履歴
+  v0.15 2026-11-01  ムクドリモードを追加（設計書 v0.5 §16 の段階1・2）。設定の「生きもの」でイワシ／ムクドリを切り替える。
+                    ・夕暮れの駅前広場から、ムクドリの群れを見上げる。空（夕焼け・薄い雲）、駅舎とビル（窓の灯り）、並木、電線、街灯
+                    ・ムクドリは近い順の7羽を見て整列・結合する。傾けて曲がり、翼の向きで群れに濃淡の波ができる。羽ばたきと滑空を繰り返す
+                    ・タップでハヤブサが急降下して群れを突き抜け、なぞると指を追って群れを追い回す（空には常に1羽、鳥は捕まえない）
+                    ・カメラは立つ位置を固定して群れの方へ首を振り、群れ全体が入るように画角を変える
+                    ・ムクドリモードでは障害物・餌・海底・岩を使わない。音は次の版（今は鳴らない）
+                    ・エンジン v0.8（イワシの動きは変えていない）
   v0.14 2026-11-01  最大数を端末に合わせて増やせるようにした。
                     ・画質を「自動／大群／省電力」の3つに（「高」は自動に統合）
                     ・自動：500匹から始め、動作に余裕があれば250匹ずつ最大1000匹まで上げる。重いときは解像度→最大数の順に下げる
@@ -350,7 +357,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 
 <header class="top">
   <span class="mark">FLOCK</span>
-  <span class="count" aria-live="polite"><span id="count">0</span><small>匹</small><span class="arriving" id="arriving" hidden></span></span>
+  <span class="count" aria-live="polite"><span id="count">0</span><small id="countUnit">匹</small><span class="arriving" id="arriving" hidden></span></span>
   <span class="spacer"></span>
   <button class="icon-btn" id="btnPause" aria-label="一時停止" aria-pressed="false" title="一時停止（Space）">
     <svg id="pauseIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6v12M15 6v12"/></svg>
@@ -464,7 +471,14 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 <section class="sheet" id="sheet" hidden aria-label="設定">
   <h2>SETTINGS</h2>
   <div class="row">
-    <div class="lbl">仲間の合流（成長）<small>12匹から始まり、画面外の小さな群れが合流して、画質に合わせた最大数（自動は500〜1000匹）まで増えます。切り替えると群れを最初からやり直します。</small></div>
+    <div class="lbl">生きもの<small>ムクドリは、夕暮れの駅前から空の群れを見上げます。切り替えると群れを最初からやり直します。</small></div>
+    <div class="seg" id="optSpecies">
+      <button data-s="sardine" aria-pressed="true">イワシ</button>
+      <button data-s="starling" aria-pressed="false">ムクドリ</button>
+    </div>
+  </div>
+  <div class="row">
+    <div class="lbl">仲間の合流（成長）<small>12匹（羽）から始まり、画面外の小さな群れが合流して、画質に合わせた最大数（自動は500〜1000）まで増えます。切り替えると群れを最初からやり直します。</small></div>
     <label class="switch"><input type="checkbox" id="optGrowth" aria-label="仲間の合流"><span></span></label>
   </div>
   <div class="row">
@@ -476,10 +490,10 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </div>
   </div>
   <div class="row">
-    <div class="lbl">環境音<small>水のうねりと、ときどき立ちのぼる泡の音。最初に画面へ触れたときに鳴り始めます。</small></div>
+    <div class="lbl">環境音<small id="soundDesc">水のうねりと、ときどき立ちのぼる泡の音。最初に画面へ触れたときに鳴り始めます。</small></div>
     <label class="switch"><input type="checkbox" id="optSound" aria-label="環境音"><span></span></label>
   </div>
-  <div class="row">
+  <div class="row" id="rowTouchSfx">
     <div class="lbl">タッチ音<small>触れたときの水滴の音。オンにすると試聴できます。</small></div>
     <label class="switch"><input type="checkbox" id="optTouchSfx" aria-label="タッチ音"><span></span></label>
   </div>
@@ -489,16 +503,16 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     <span class="vol-out" id="volOut">70</span>
   </div>
   <h2 class="sub-h">MARKERS</h2>
-  <div class="row">
+  <div class="row" id="rowSeabed">
     <div class="lbl">海底と1mマス目<small>細い線が1m、太い線が5mごと。</small></div>
     <label class="switch"><input type="checkbox" id="optSeabed" aria-label="海底と1mマス目"><span></span></label>
   </div>
-  <div class="row">
+  <div class="row" id="rowRocks">
     <div class="lbl">岩<small>海底に固定の岩を置きます。魚は岩をよけます。</small></div>
     <label class="switch"><input type="checkbox" id="optRocks" aria-label="岩"><span></span></label>
   </div>
   <div class="row">
-    <div class="lbl">群れが泳ぐ範囲<small>幅16m × 高さ8m × 奥行14mの楕円体。外へ出ると内側へ戻ろうとします。</small></div>
+    <div class="lbl">群れが泳ぐ範囲<small id="rangeDesc">幅16m × 高さ8m × 奥行14mの楕円体。外へ出ると内側へ戻ろうとします。</small></div>
     <label class="switch"><input type="checkbox" id="optRange" aria-label="群れが泳ぐ範囲"><span></span></label>
   </div>
   <div class="row">
@@ -529,6 +543,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     <details class="hist">
       <summary>更新履歴</summary>
       <p class="ver">
+      v0.15（2026-11-01）ムクドリモード（夕暮れの駅前から見上げる・ハヤブサ）<br>
       v0.14（2026-11-01）画質に「大群」（最大2000匹）、自動は端末に合わせて最大1000匹まで。裏モード（開始匹数・更新履歴）<br>
       v0.13（2026-11-01）餌が海底より下にまかれないように<br>
       v0.12（2026-11-01）2本指の拡大縮小で誤って操作しないように<br>
@@ -547,6 +562,6 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </details>
     <div class="btn-row"><button class="chip" id="btnDevHide">裏モードを閉じる</button></div>
   </section>
-  <p class="ver" id="ver"><b>FLOCK v0.14</b> TOUCH &amp; AVOID<br>
-  個体は人工モデルで、実際の魚の生態を厳密に再現したものではありません。</p>
+  <p class="ver" id="ver"><b>FLOCK v0.15</b> TOUCH &amp; AVOID<br>
+  個体は人工モデルで、実際の魚や鳥の生態を厳密に再現したものではありません。</p>
 </section>

@@ -16,7 +16,7 @@
 1. 版数を上げる。0.12 → 0.13 のように、2番目の数字を1つ上げる。
 2. `src/shell.html` 冒頭のコメントにある「更新履歴」の一番上に、日付と変更点を書く。
 3. `src/shell.html` の設定画面の `.ver` の段落で、`FLOCK v…` を新しい版数に直し、要約の行を1行足す。
-4. `src/app.js` と `src/engine.js` の先頭コメントの版数を更新する。エンジンの版数（`ENGINE_VERSION`）は、エンジンを変更したときだけ上げる。
+4. `src/app.js`・`src/starling.js`（ムクドリの描画）・`src/engine.js` の先頭コメントの版数を更新する。エンジンの版数（`ENGINE_VERSION`）は、エンジンを変更したときだけ上げる。
 5. `CHANGELOG.md` に追記する。
 6. `python3 tools/build.py <新しい版数>` を実行する。`VERSION`、`package.json` の version、`index.html`、`releases/flock_v<新しい版数>.html` が更新される。既存の `releases/` のファイルは上書きされない。
 7. 仕様が変わったときは、設計書を新しい版数のファイルとして作る（例：`docs/FLOCK_設計書_v0.4.md`）。古い版は消さない。

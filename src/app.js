@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK app v0.14（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.15（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作
  * ===================================================================== */
 (function () {
   'use strict';
@@ -16,7 +17,8 @@
   };
   var settings = Object.assign({ growth: false, quality: 'auto', sound: true, debug: false,
     seabed: false, rocks: false, range: false, scalebar: false, touchSfx: true, volume: 70,
-    startN: 0, devUnlocked: false }, store.get('settings', {}));
+    startN: 0, devUnlocked: false, species: 'sardine' }, store.get('settings', {}));
+  if (settings.species !== 'starling') settings.species = 'sardine';
   if (settings.touchSound === 'none') settings.touchSfx = false;   // v0.6 の保存値からの移行
   delete settings.touchSound;
   if (settings.quality === 'high') settings.quality = 'auto';     // v0.14 で「高」を廃止（自動に統合）
@@ -32,9 +34,13 @@
   function liteFx() { return settings.quality === 'many'; }
   function basePR() { var d = window.devicePixelRatio || 1; return settings.quality === 'auto' ? Math.min(d, 2) : 1; }
   function startCount() { return settings.startN > 0 ? Math.min(settings.startN, hardCap()) : undefined; }   // 裏モードの開始匹数
+  function isStar() { return settings.species === 'starling'; }   // v0.15 ムクドリモード
+  function unit() { return isStar() ? '羽' : '匹'; }
+  // 成長モードがオフのムクドリは、画質の最大数の半分から始める（設計書 §16.3）
+  function initialCount() { return startCount() || (isStar() && !settings.growth ? Math.round(qualityCap() / 2) : undefined); }
 
   /* ---------------- シミュレーション ---------------- */
-  var engine = new FLOCK.FlockEngine({ capacity: CAP, growth: settings.growth, maxCount: Math.max(qualityCap(), startCount() || 0), initial: startCount() });
+  var engine = new FLOCK.FlockEngine({ species: settings.species, capacity: CAP, growth: settings.growth, maxCount: Math.max(qualityCap(), startCount() || 0), initial: initialCount() });
 
   /* ---------------- Three.js ---------------- */
   var canvas = document.getElementById('scene');
@@ -319,7 +325,7 @@
   // 選択中の障害物：破線リング＋4点ハンドル（v0.2 / 試作Bを参考）
   /* ---------------- 目印（v0.3）：海底と1mマス目・岩・泳ぐ範囲の枠 ----------------
    * 尺度：イワシの体長 bodyLen 0.32 ≒ 16cm として 1ワールド単位 = 0.5m（2単位 = 1m）。 */
-  var BND = engine.params.bounds, FLOOR_Y = -BND[1];
+  var BND = FLOCK.SARDINE.bounds, FLOOR_Y = -BND[1];   // イワシの海の大きさ（ムクドリでは使わない）
   var causticTime = { value: 0 };   // 水面からの揺らめく光（海底・岩で共有）
   var causticOn = { value: 1 };     // v0.14: 大群モードでは 0（計算ごと省く）
   var CAUSTIC_GLSL = 'float caus(vec2 p, float t){' +
@@ -441,24 +447,34 @@
   })();
   rockGroup.visible = false; rockShadows.visible = false; scene.add(rockGroup); scene.add(rockShadows);
 
-  var rangeFrame = (function () {   // 群れが泳ぐ範囲（ソフト境界の楕円体）
-    var g = new THREE.Group(), mat = new THREE.LineBasicMaterial({ color: 0x92e2db, transparent: true, opacity: 0.22, depthWrite: false });
+  function makeRangeFrame(BB, color, opacity) {   // 群れが泳ぐ（飛ぶ）範囲（ソフト境界の楕円体）
+    var g = new THREE.Group(), mat = new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity, depthWrite: false, fog: false });
     function ring(fn) { var pts = []; for (var i = 0; i <= 96; i++) pts.push(fn(i / 96 * Math.PI * 2)); g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat)); }
     [-0.6, -0.3, 0, 0.3, 0.6].forEach(function (h) {
       var s = Math.sqrt(1 - h * h);
-      ring(function (a) { return new THREE.Vector3(Math.cos(a) * s * BND[0], h * BND[1], Math.sin(a) * s * BND[2]); });
+      ring(function (a) { return new THREE.Vector3(Math.cos(a) * s * BB[0], h * BB[1], Math.sin(a) * s * BB[2]); });
     });
     [0, Math.PI / 4, Math.PI / 2, Math.PI * 3 / 4].forEach(function (ph) {
-      ring(function (a) { return new THREE.Vector3(Math.cos(a) * Math.cos(ph) * BND[0], Math.sin(a) * BND[1], Math.cos(a) * Math.sin(ph) * BND[2]); });
+      ring(function (a) { return new THREE.Vector3(Math.cos(a) * Math.cos(ph) * BB[0], Math.sin(a) * BB[1], Math.cos(a) * Math.sin(ph) * BB[2]); });
     });
     g.visible = false; scene.add(g); return g;
-  })();
+  }
+  var rangeSea = makeRangeFrame(BND, 0x92e2db, 0.22), rangeSky = makeRangeFrame(FLOCK.STARLING.bounds, 0xfff1dc, 0.3);
+  var rangeFrame = rangeSea;
+
+  /* ---------------- ムクドリモード（v0.15）：空・駅前の街・鳥・ハヤブサ（starling.js） ---------------- */
+  var starView = FLOCK.createStarlingView({ THREE: THREE, cap: CAP, engine: engine });
+  scene.add(starView.group);
+  var seaFog = scene.fog, skyFog = new THREE.FogExp2(0x9e707a, 0.0012);
 
   function applyLandmarks() {
-    seabed.visible = !!settings.seabed;
-    rockGroup.visible = !!settings.rocks;
-    rockShadows.visible = !!(settings.rocks && settings.seabed);
-    engine.landmarks = settings.rocks ? rockObs : [];
+    var st = isStar();   // ムクドリでは海底と岩を使わない
+    seabed.visible = !st && !!settings.seabed;
+    rockGroup.visible = !st && !!settings.rocks;
+    rockShadows.visible = !st && !!(settings.rocks && settings.seabed);
+    engine.landmarks = !st && settings.rocks ? rockObs : [];
+    rangeSea.visible = rangeSky.visible = false;
+    rangeFrame = st ? rangeSky : rangeSea;
     rangeFrame.visible = !!settings.range;
     document.getElementById('scalebar').hidden = !settings.scalebar;
   }
@@ -492,14 +508,50 @@
   var camFwd = new THREE.Vector3(0, 0, -1);
   var camDist = 12, spreadSm = engine.spread, zoom = 1, W = 1, H = 1;
   var userYaw = 0, userPitch = 0.24, ORBIT_K = 0.006;   // v0.3 視点回転（観察モードの1本指／全モードの2本指）
-  function clampPitch(p) { return Math.min(1.3, Math.max(-0.2, p)); }
+  function clampPitch(p) { return isStar() ? Math.min(0.9, Math.max(-0.9, p)) : Math.min(1.3, Math.max(-0.2, p)); }
+  function zoomMin() { return isStar() ? 0.5 : 0.45; }
+  function zoomMax() { return isStar() ? 2 : 2.4; }
   var tanHalf = Math.tan(FOV * Math.PI / 360);
   function desiredDist() {
     var aspect = W / H;
     var d = (2.8 * Math.max(0.8, spreadSm) / 0.55) / (2 * tanHalf * Math.min(aspect, 1));
     return Math.min(38, Math.max(6, d)) * zoom;
   }
+  /* v0.15 ムクドリ：駅前広場に立って見上げる。立つ位置は固定し、群れの方へ首を振る。
+   * 画角は群れ全体が入るように変える。2本指（観察モードは1本指）で向きをずらし、3秒たつと自動に戻る */
+  var VIEW_POS = new THREE.Vector3(0, FLOCK.STARLING.groundY + 1.6, 125), lookAtV = new THREE.Vector3();
+  var stYaw = 0, stPitch = 0.4, stFov = 50, lastLook = -1e9, stSnap = true;
+  function clampN(x, a, b) { return x < a ? a : x > b ? b : x; }
+  function updateStarCamera(dt) {
+    var c = engine.centroid, k = stSnap ? 1 : 1 - Math.exp(-dt * 0.9);
+    camTarget.x += (c[0] - camTarget.x) * k; camTarget.y += (c[1] - camTarget.y) * k; camTarget.z += (c[2] - camTarget.z) * k;
+    spreadSm += (engine.spread - spreadSm) * (stSnap ? 1 : 1 - Math.exp(-dt * 0.5));
+    var dx = camTarget.x - VIEW_POS.x, dy = camTarget.y - VIEW_POS.y, dz = camTarget.z - VIEW_POS.z;
+    var hd = Math.hypot(dx, dz) || 1, dist = Math.hypot(hd, dy), aspect = W / H;
+    var hf = 2 * Math.atan((spreadSm * 1.8 + 6) / dist) / 0.55;   // 群れの見かけの直径が、画面の短い辺の半分強
+    var vf = aspect < 1 ? 2 * Math.atan(Math.tan(hf / 2) / aspect) : hf;
+    var vDeg = clampN(clampN(vf * 180 / Math.PI, 24, 80) / zoom, 14, 95);
+    // 地平線が画面の下から約2割の高さに来る向きを基本にし、群れが高いときだけ見上げる
+    var halfV = vDeg * Math.PI / 360, pHor = Math.atan(0.58 * Math.tan(halfV)), elev = Math.atan2(dy, hd);
+    var tYaw = Math.atan2(-dx, -dz), tPitch = clampN(Math.max(pHor, elev - 0.55 * halfV), 0.03, 1.35);
+    if (performance.now() - lastLook > 3000) { var kb = Math.exp(-dt * 1.2); userYaw *= kb; userPitch *= kb; }
+    var kk = stSnap ? 1 : 1 - Math.exp(-dt * 1.4), dyaw = tYaw - stYaw;
+    while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+    while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+    stYaw += dyaw * kk; stPitch += (tPitch - stPitch) * kk; stFov += (vDeg - stFov) * kk;
+    stSnap = false;
+    var yaw = stYaw + userYaw, pitch = clampN(stPitch + userPitch, 0, 1.4);   // 見上げる角度は 0〜80°
+    camera.position.copy(VIEW_POS);
+    camFwd.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+    camera.lookAt(lookAtV.copy(VIEW_POS).add(camFwd));
+    if (Math.abs(camera.fov - stFov) > 1e-3) { camera.fov = stFov; camera.updateProjectionMatrix(); }
+    camera.updateMatrixWorld();
+    tanHalf = Math.tan(stFov * Math.PI / 360);
+    camDist = dist;
+    engine.viewHalf = dist * tanHalf * aspect;
+  }
   function updateCamera(dt, clock) {
+    if (isStar()) { updateStarCamera(dt); return; }
     var c = engine.centroid;
     if (!drag) {
       var k = 1 - Math.exp(-dt * 0.9);
@@ -551,7 +603,14 @@
 
   function touchRadius() { var v = viewSizeAtTarget(); return 0.15 * Math.min(v.w, v.h) * touchScale; }
 
+  var fal = { sx: 0, sy: 0, x0: 0, y0: 0, chasing: false };   // v0.15 ハヤブサの指
   function updateTouch(dt) {
+    if (isStar()) {   // ムクドリ：指はハヤブサを動かす。エンジンには predator として渡す
+      engine.repulsors = emptyList; touchViz.visible = false;
+      if (fal.chasing && touch.down && screenToPlane(fal.sx, fal.sy, camTarget, tmpV)) starView.falcon.steer(tmpV);
+      engine.predator = starView.falcon.step(dt, camera.position);
+      return;
+    }
     // v0.7: 指を離していても、押してから最低 TAP_MIN 秒は刺激を与える（素早いタップの取りこぼし防止）
     var held = touch.down && gesture === 'touch';
     if (held || touch.minHold > 0) {
@@ -672,6 +731,7 @@
     if (!made || performance.now() - made.t > UNDO_MS) { made = null; return; }
     if (made.obs) { engine.removeObstacle(made.obs); if (selectedId === made.obs) selectedId = null; drag = null; updateObsUI(); }
     if (made.food) engine.foodN = Math.max(0, engine.foodN - made.food);
+    if (made.falcon) starView.falcon.cancel(UNDO_MS);
     made = null;
   }
   function commitPending() {
@@ -685,6 +745,11 @@
     made = { t: performance.now(), obs: null, food: 0 };
     if (button === 2 || mode === 'watch') {   // 右ドラッグ（PC）または観察モードで視点を回す
       gesture = 'look'; look = { sx: x, sy: y, yaw0: userYaw, pitch0: userPitch, moved: button === 2 };
+      return;
+    }
+    if (mode === 'touch' && isStar()) {   // v0.15 ハヤブサ：タップで急降下、なぞると追いかける
+      gesture = 'falcon'; touch.down = true;
+      fal.sx = fal.x0 = x; fal.sy = fal.y0 = y; fal.chasing = false;
       return;
     }
     if (mode === 'touch' && touchTool === 'feed') {   // 餌やり：タップした場所に餌をまく
@@ -705,7 +770,7 @@
     if (gesture === 'look' && look) {
       var dx = x - look.sx, dy = y - look.sy;
       if (!look.moved && dx * dx + dy * dy > 64) look.moved = true;
-      if (look.moved) { userYaw = look.yaw0 - dx * ORBIT_K; userPitch = clampPitch(look.pitch0 + dy * ORBIT_K); }
+      if (look.moved) { userYaw = look.yaw0 + dx * ORBIT_K * yawSign(); userPitch = clampPitch(look.pitch0 + dy * ORBIT_K); lastLook = performance.now(); }
     } else if (gesture === 'feed') {   // なぞると帯状にまく
       if (Math.hypot(x - feedLast.x, y - feedLast.y) > 34) { feedLast.x = x; feedLast.y = y; if (made) made.food += scatterFood(x, y, 8); else scatterFood(x, y, 8); }
     } else if (gesture === 'touch') {
@@ -716,7 +781,17 @@
         playTouch(x, y, true);
       }
     } else if (gesture === 'obstacle') obstacleMove(x, y);
+    else if (gesture === 'falcon') {
+      fal.sx = x; fal.sy = y;
+      if (!fal.chasing && Math.hypot(x - fal.x0, y - fal.y0) > 12 && screenToPlane(x, y, camTarget, tmpV)) {
+        fal.chasing = true;
+        var fresh = !starView.falcon.active();
+        starView.falcon.chase(tmpV.clone(), camera.position);
+        if (made && fresh) made.falcon = true;
+      }
+    }
   }
+  function yawSign() { return isStar() ? 1 : -1; }   // ムクドリは自分が向きを変える（ドラッグした方へ景色が動く）
 
   canvas.addEventListener('pointerdown', function (e) {
     try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
@@ -745,10 +820,12 @@
       return;
     }
     if (gesture === 'pinch' && pointers.size >= 2 && pinch) {
-      zoom = Math.min(2.4, Math.max(0.45, pinch.z0 * pinch.d0 / pdist()));
+      zoom = isStar() ? Math.min(zoomMax(), Math.max(zoomMin(), pinch.z0 * pdist() / pinch.d0))   // ムクドリは画角を変える（広げると拡大）
+        : Math.min(zoomMax(), Math.max(zoomMin(), pinch.z0 * pinch.d0 / pdist()));
       var mm = pmid();   // 2本指をそろえて動かすと視点が回る
-      userYaw = pinch.yaw0 - (mm.x - pinch.mx) * ORBIT_K;
+      userYaw = pinch.yaw0 + (mm.x - pinch.mx) * ORBIT_K * yawSign();
       userPitch = clampPitch(pinch.pitch0 + (mm.y - pinch.my) * ORBIT_K);
+      lastLook = performance.now();
     } else moveSingle(e.clientX, e.clientY);
   });
   function pointerEnd(e) {
@@ -761,6 +838,10 @@
     if (gesture === 'pinch') { gesture = pointers.size ? 'wait' : 'none'; pinch = null; return; }
     if (gesture === 'wait') { if (!pointers.size) gesture = 'none'; return; }
     if (gesture === 'look' && look && !look.moved && e.type === 'pointerup' && mode === 'watch') toggleTagAt(look.sx, look.sy);
+    if (gesture === 'falcon') {
+      if (fal.chasing) starView.falcon.release();
+      else if (e.type === 'pointerup' && screenToPlane(fal.x0, fal.y0, camTarget, tmpV)) starView.falcon.dive(tmpV.clone(), camera.position);
+    }
     endSingle();
     if (!pointers.size) gesture = 'none';
   }
@@ -770,7 +851,7 @@
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   canvas.addEventListener('wheel', function (e) {
     e.preventDefault();
-    zoom = Math.min(2.4, Math.max(0.45, zoom * Math.exp(e.deltaY * 0.0012)));
+    zoom = Math.min(zoomMax(), Math.max(zoomMin(), zoom * Math.exp(e.deltaY * (isStar() ? -0.0012 : 0.0012))));
   }, { passive: false });
   window.addEventListener('blur', releaseAll);
   document.addEventListener('visibilitychange', function () {
@@ -797,10 +878,12 @@
   var showRadius = false;
 
   function setMode(m) {
+    if (m === 'obstacle' && isStar()) m = 'touch';
     mode = m; releaseAll();
     Object.keys(modeBtns).forEach(function (k) { modeBtns[k].setAttribute('aria-pressed', String(k === m)); });
+    modeBtns.obstacle.hidden = isStar();
     obsPanel.hidden = m !== 'obstacle';
-    touchTools.hidden = m !== 'touch';
+    touchTools.hidden = m !== 'touch' || isStar();
     tagPanel.hidden = m !== 'watch';
     updateObsUI();
     showHint(m === 'touch' && touchTool === 'feed' ? 'feed' : m);
@@ -847,7 +930,10 @@
 
   // 初回ガイド
   var guide = $('guide'), guideOpen = false;
-  function showGuide() { guide.hidden = false; guide.classList.remove('fade'); guideOpen = true; }
+  function showGuide() {
+    if (typeof GUIDE_SEA === 'string') guide.innerHTML = isStar() ? GUIDE_SKY : GUIDE_SEA;   // v0.15 生きものに合わせた説明
+    guide.hidden = false; guide.classList.remove('fade'); guideOpen = true;
+  }
   function dismissGuide() {
     if (!guideOpen) return;
     guideOpen = false; guide.classList.add('fade'); store.set('guideSeen', true);
@@ -863,10 +949,18 @@
     touch: '指で触れると、そこから逃げる動きが群れに広がります',
     watch: 'タップで魚に色を付けられます。ドラッグで視点を回せます'
   };
+  var HINTS_STAR = {   // v0.15 ムクドリ
+    touch: 'タップするとハヤブサが急降下します。なぞると群れを追いかけます',
+    watch: 'タップで鳥に色を付けられます。ドラッグで見る向きを変えられます'
+  };
+  var GUIDE_SEA = guide.innerHTML;
+  var GUIDE_SKY = '夕暮れの空を、ムクドリの群れが飛びます。<br>タップするとハヤブサが急降下。<br>なぞると群れを追いかけます。' +
+    '<span class="sub">2本指で見る向き・ズーム ／ 画面に触れると閉じます</span>';
   function showHint(m) {
     clearTimeout(hintTimer);
-    if (!HINTS[m] || guideOpen) { fadeHint(); return; }
-    hintEl.textContent = HINTS[m]; hintEl.hidden = false; hintEl.classList.remove('fade');
+    var txt = (isStar() ? HINTS_STAR : HINTS)[m];
+    if (!txt || guideOpen) { fadeHint(); return; }
+    hintEl.textContent = txt; hintEl.hidden = false; hintEl.classList.remove('fade');
     hintTimer = setTimeout(fadeHint, 5000);
   }
   function fadeHint() { hintEl.classList.add('fade'); }
@@ -885,7 +979,7 @@
     if (tag === 'INPUT' || tag === 'TEXTAREA' || !sheet.hidden || e.repeat) return;
     if (e.code === 'Space') { e.preventDefault(); togglePause(); }
     else if (e.key === '1') setMode('touch');
-    else if (e.key === '2') setMode('obstacle');
+    else if (e.key === '2' && !isStar()) setMode('obstacle');
     else if (e.key === '3') setMode('watch');
   });
   document.addEventListener('keyup', function (e) { if (e.code === 'Space' && e.target && e.target.tagName === 'BUTTON') e.preventDefault(); });
@@ -905,7 +999,7 @@
 
   var optGrowth = $('optGrowth'), optSound = $('optSound'), optDebug = $('optDebug');
   optGrowth.checked = settings.growth; optSound.checked = settings.sound; optDebug.checked = settings.debug;
-  optGrowth.addEventListener('change', function () { settings.growth = optGrowth.checked; saveSettings(); updateStartUI(); restart(); toast((settings.growth ? '成長モード：' : '') + (startCount() || defaultStart()) + '匹から始めます'); });
+  optGrowth.addEventListener('change', function () { settings.growth = optGrowth.checked; saveSettings(); updateStartUI(); restart(); toast((settings.growth ? '成長モード：' : '') + (startCount() || defaultStart()) + unit() + 'から始めます'); });
   optSound.addEventListener('change', function () { settings.sound = optSound.checked; saveSettings(); setSound(settings.sound); });
   var optTouchSfx = $('optTouchSfx');
   optTouchSfx.checked = settings.touchSfx;
@@ -923,7 +1017,7 @@
   var qBtns = Array.from(document.querySelectorAll('#optQuality button'));
   function applyFx() {   // 大群モード：細かい演出を減らす（マリンスノー・海底と岩の光の揺らめき・驚いたときの光り）
     var lite = liteFx();
-    snow.visible = !lite;
+    snow.visible = !lite && !isStar();
     causticOn.value = lite ? 0 : 1;
   }
   function applyQuality() {
@@ -952,7 +1046,7 @@
     if (settings.debug) { optDebug.checked = false; optDebug.dispatchEvent(new Event('change')); }
   });
   var optStartN = $('optStartN'), startNOut = $('startNOut');
-  function defaultStart() { return settings.growth ? 12 : 100; }
+  function defaultStart() { return settings.growth ? 12 : isStar() ? Math.round(qualityCap() / 2) : 100; }
   function updateStartUI() {
     optStartN.max = hardCap();
     var v = settings.startN > 0 ? Math.min(settings.startN, hardCap()) : defaultStart();
@@ -961,15 +1055,15 @@
   optStartN.addEventListener('input', function () { startNOut.textContent = optStartN.value; });
   $('btnStartN').addEventListener('click', function () {
     settings.startN = +optStartN.value; saveSettings(); restart(); openSheet(false);
-    toast(settings.startN + '匹で始めます');
+    toast(settings.startN + unit() + 'で始めます');
   });
   $('btnStartDef').addEventListener('click', function () {
     settings.startN = 0; saveSettings(); updateStartUI(); restart(); openSheet(false);
-    toast('開始匹数を既定（' + defaultStart() + '匹）に戻しました');
+    toast('開始の数を既定（' + defaultStart() + unit() + '）に戻しました');
   });
   updateStartUI();
 
-  $('btnResetView').addEventListener('click', function () { zoom = 1; userYaw = 0; userPitch = 0.24; camTarget.fromArray(engine.centroid); openSheet(false); });
+  $('btnResetView').addEventListener('click', function () { zoom = 1; userYaw = 0; userPitch = isStar() ? 0 : 0.24; camTarget.fromArray(engine.centroid); stSnap = true; openSheet(false); });
   $('btnGuide').addEventListener('click', function () { openSheet(false); showGuide(); });
   $('btnRestart').addEventListener('click', function () { restart(); openSheet(false); });
 
@@ -979,7 +1073,10 @@
     var sN = startCount();
     engine.maxCount = Math.max(qualityCap(), sN || 0);
     capHeld = false;
-    engine.reset(seed != null ? seed : (Math.random() * 0x7fffffff) >>> 0, sN);
+    var sd = seed != null ? seed : (Math.random() * 0x7fffffff) >>> 0;
+    if (engine.species !== settings.species) engine.setSpecies(settings.species, sd, initialCount());
+    else engine.reset(sd, initialCount());
+    engine.predator = null; starView.reset();
     selectedId = null; renderedN = 0;
     camTarget.fromArray(engine.centroid); spreadSm = engine.spread;
     touch.s = 0; touch.init = false;
@@ -987,6 +1084,37 @@
     togglePause(false);
     updateObsUI();
   }
+
+  /* ---------------- 生きものの切り替え（v0.15）：イワシ／ムクドリ ---------------- */
+  var spBtns = Array.from(document.querySelectorAll('#optSpecies button'));
+  function applySpecies() {
+    var st = isStar();
+    spBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.s === settings.species)); });
+    sky.visible = fish.visible = foodPts.visible = !st;
+    starView.setVisible(st);
+    scene.fog = st ? skyFog : seaFog;
+    camera.near = st ? 0.5 : 0.1; camera.far = st ? 5000 : 220;
+    if (!st) { camera.fov = FOV; tanHalf = Math.tan(FOV * Math.PI / 360); }
+    camera.updateProjectionMatrix();
+    userYaw = 0; userPitch = st ? 0 : 0.24; zoom = 1; stSnap = true;
+    $('countUnit').textContent = unit();
+    $('rowTouchSfx').hidden = $('rowSeabed').hidden = $('rowRocks').hidden = st;
+    $('soundDesc').textContent = st ? 'ムクドリモードの音（夕方の風と遠いさえずり）は次の版で付けます。今は鳴りません。' : SOUND_DESC_SEA;
+    $('rangeDesc').textContent = st ? '幅120m × 高さ40m × 奥行120mの楕円体（中心は地上50m）。外へ出ると内側へ戻ろうとします。' : RANGE_DESC_SEA;
+    if (guideOpen) guide.innerHTML = st ? GUIDE_SKY : GUIDE_SEA;
+    setMode(mode);
+    applyFx(); applyLandmarks(); updateStartUI(); syncDbgSliders();
+    if (audio) setSound(settings.sound);
+  }
+  var SOUND_DESC_SEA = $('soundDesc').textContent, RANGE_DESC_SEA = $('rangeDesc').textContent;
+  spBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.dataset.s === settings.species) return;
+      settings.species = b.dataset.s; saveSettings();
+      restart(); applySpecies(); openSheet(false);
+      toast((isStar() ? 'ムクドリ' : 'イワシ') + '：' + engine.n + unit() + 'で始めます');
+    });
+  });
 
   // 開発者表示：係数スライダー
   var DBG = [
@@ -1021,9 +1149,17 @@
     showDesc = e.target.checked;
     Array.prototype.forEach.call(document.querySelectorAll('.dbg-desc'), function (p) { p.hidden = !showDesc; });
   });
+  function syncDbgSliders() {   // 生きものを切り替えたとき、スライダーを今のパラメータに合わせる
+    DBG.forEach(function (d) {
+      if (d[0] === '_touchScale') return;
+      var inp = $('dbg_' + d[0].replace('_', '')), v = engine.params[d[0]];
+      if (+inp.max < v) inp.max = Math.ceil(v * 2);
+      inp.value = v; inp.nextElementSibling.textContent = (+v).toFixed(2);
+    });
+  }
   $('btnDbgReset').addEventListener('click', function () {
     DBG.forEach(function (d) {
-      var v = d[0] === '_touchScale' ? 1 : FLOCK.SARDINE[d[0]];
+      var v = d[0] === '_touchScale' ? 1 : FLOCK.SPECIES[engine.species][d[0]];
       if (d[0] === '_touchScale') touchScale = v; else engine.params[d[0]] = v;
       var inp = $('dbg_' + d[0].replace('_', '')); inp.value = v; inp.nextElementSibling.textContent = (+v).toFixed(2);
     });
@@ -1059,6 +1195,7 @@
       ma[o] = tmpC.r; ma[o + 1] = tmpC.g; ma[o + 2] = tmpC.b;
     }
     fish.instanceColor.needsUpdate = true; markAttr.needsUpdate = true;
+    starView.setTag(i, ci < 0 ? null : TAG_COLORS[ci]);
   }
   function pickFish(sx, sy) {   // 画面上で指に最も近い魚（34px以内）
     var r = canvas.getBoundingClientRect(), best = -1, bestD = 34 * 34;
@@ -1075,7 +1212,7 @@
     var i = pickFish(sx, sy);
     if (i < 0) return;
     if (tags.has(i)) setTag(i, -1);
-    else if (tags.size >= TAG_MAX) toast('色を付けられるのは8匹までです。付いている魚をタップすると外せます');
+    else if (tags.size >= TAG_MAX) toast('色を付けられるのは8' + unit() + 'までです。付いている' + (isStar() ? '鳥' : '魚') + 'をタップすると外せます');
     else addTag(i);
     updateTagUI();
   }
@@ -1156,7 +1293,7 @@
       lfo(ctx, 0.071, 0.065, wg.gain); lfo(ctx, 0.113, 0.04, wg.gain);   // 周期の違う2つで不規則なうねり
       lfo(ctx, 0.053, 260, wb.frequency);
       audio = { ctx: ctx, master: master, dry: dry, verb: verb, amb: amb, white: white };
-      if (settings.sound) amb.gain.setTargetAtTime(1, ctx.currentTime, 1.5);
+      if (settings.sound && !isStar()) amb.gain.setTargetAtTime(1, ctx.currentTime, 1.5);
       setTimeout(bubbleLoop, 1500);
     } catch (e) { audio = null; }
   }
@@ -1173,7 +1310,7 @@
   }
   function bubbleLoop() {
     if (!audio) return;
-    if (settings.sound && !document.hidden && audio.ctx.state === 'running') {
+    if (settings.sound && !isStar() && !document.hidden && audio.ctx.state === 'running') {
       var t = audio.ctx.currentTime + 0.05, n = 1 + Math.floor(Math.random() * 4), pan = Math.random() * 1.6 - 0.8;
       for (var k = 0; k < n; k++) {
         t += 0.04 + Math.random() * 0.14;
@@ -1183,7 +1320,7 @@
     setTimeout(bubbleLoop, 1800 + Math.random() * 4500);
   }
   function playTouch(sx, sy, soft) {
-    if (!audio || !settings.touchSfx || paused) return;
+    if (!audio || !settings.touchSfx || paused || isStar()) return;
     var ctx = audio.ctx, t = ctx.currentTime + 0.01, r = canvas.getBoundingClientRect();
     var pan = ((sx - r.left) / r.width - 0.5) * 1.2, k = soft ? 0.55 : 1;
     // 水滴：音程は毎回ランダム（約450〜1100Hzから上昇）。v0.6より約5dB小さく
@@ -1222,7 +1359,7 @@
     return n;
   }
   function setSound(on) {
-    if (on) { startAudio(); if (audio) audio.amb.gain.setTargetAtTime(1, audio.ctx.currentTime, 0.6); }
+    if (on) { startAudio(); if (audio) audio.amb.gain.setTargetAtTime(isStar() ? 0 : 1, audio.ctx.currentTime, 0.6); }
     else if (audio) audio.amb.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.2);
   }
   function previewTouch() {   // 設定で選んだ音を試聴（画面中央付近で鳴らす）
@@ -1279,13 +1416,13 @@
   /* ---------------- 指標表示・自動画質 ---------------- */
   var countEl = $('count'), arrivingEl = $('arriving');
   var fpsFrames = 0, fpsT = 0, fps = 60, simMs = 0, metricT = 0, qualityT = 0, shownCount = -1, capHeld = false;
-  var sbW = -1, sbBar = $('scalebarBar'), sbLabel = $('scalebarLabel'), SB_STEPS = [0.5, 1, 2, 5, 10, 20];
+  var sbW = -1, sbBar = $('scalebarBar'), sbLabel = $('scalebarLabel'), SB_STEPS = [0.5, 1, 2, 5, 10, 20], SB_STEPS_SKY = [1, 2, 5, 10, 20, 50, 100];
   function updateHud(dt) {
     if (engine.joined !== shownCount) { shownCount = engine.joined; countEl.textContent = shownCount; }
     var arriving = engine.n - engine.joined;
     if (settings.scalebar) {   // 群れの中心の奥行きでの長さ（1ワールド単位 = 0.5m）
-      var pxM = H / (2 * camDist * tanHalf) * 2, m = 20;
-      for (var q = 0; q < SB_STEPS.length; q++) if (pxM * SB_STEPS[q] >= 44) { m = SB_STEPS[q]; break; }
+      var pxM = H / (2 * camDist * tanHalf) * (isStar() ? 1 : 2), steps = isStar() ? SB_STEPS_SKY : SB_STEPS, m = steps[steps.length - 1];   // ムクドリは 1単位 = 1m
+      for (var q = 0; q < steps.length; q++) if (pxM * steps[q] >= 44) { m = steps[q]; break; }
       var w = Math.round(pxM * m);
       if (w !== sbW) { sbW = w; sbBar.style.width = w + 'px'; sbLabel.textContent = m < 1 ? (m * 100) + ' cm' : m + ' m'; }
     }
@@ -1344,15 +1481,18 @@
       engine._updateObstacles(Math.max(dt, 1 / 120));
     }
     updateCamera(dt, simClock);
-    updateFish(paused ? 1 : acc / STEP, paused ? 0 : dt);
+    if (isStar()) starView.update(paused ? 1 : acc / STEP, paused ? 0 : dt, camera, H, simClock, liteFx());
+    else updateFish(paused ? 1 : acc / STEP, paused ? 0 : dt);
     syncObstacles();
     updateFoodPts();
     if (mode === 'obstacle' && (frame._n = (frame._n || 0) + 1) % 15 === 0) updateObsUI();
     updateHud(dt);
     renderer.render(scene, camera);
   }
+  applySpecies();
   updateCamera(0, 0);
   FLOCK.debugAudio = function () { return audio; };
+  FLOCK.debugStar = starView;   // 検証用（ムクドリの描画・ハヤブサ）
   FLOCK.debugEngine = engine;   // 検証用
   FLOCK.debugView = function (yaw, pitch, z) { userYaw = yaw; userPitch = pitch; zoom = z; };
   camDist = desiredDist();

@@ -148,6 +148,81 @@ for (const kind of ['buoy', 'pillar']) {
   check('大群 2000匹で1更新 12ms未満（PC基準）', msPerStep < 12, `${msPerStep.toFixed(2)} ms/更新`);
 }
 
+/* ---------------- ムクドリ（v0.15 / 設計書 §16.11） ---------------- */
+function starling(n, seed) { return new FlockEngine({ species: 'starling', seed, growth: false, capacity: 2000, maxCount: n, initial: n }); }
+function minY(e) { let m = 1e9; for (let i = 0; i < e.n; i++) m = Math.min(m, e.py[i]); return m; }
+
+// S01 放置：1つの群れにまとまり、向きをそろえてうねり続ける。S06 最低高度より下へ行かない
+{
+  const e = starling(300, 5), floorF = e.params.groundY + e.params.minAlt;
+  let comp = 0, P = 0, k = 0, low = 1e9;
+  run(e, 120, s => { if (s % 30 === 0) low = Math.min(low, minY(e)); if (s > 300 && s % 60 === 0) { e.analyze(); comp += e.stats.components; P += e.stats.P; k++; } });
+  e.analyze();
+  check('S01 ムクドリ 放置120秒でNaNなし', !hasNaN(e));
+  check('S01 ムクドリ ほぼ1つの群れ（連結成分の平均≤2.5）', comp / k <= 2.5, `平均=${(comp / k).toFixed(2)}`);
+  check('S01 ムクドリ 向きがそろっている（偏極度の平均>0.6）', P / k > 0.6, `P=${(P / k).toFixed(2)}`);
+  check('S01 ムクドリ 最近接距離が約1〜2 m', e.stats.meanNN > 0.8 && e.stats.meanNN < 2.0, `平均=${e.stats.meanNN.toFixed(2)} m`);
+  check('S06 ムクドリ 最低高度（地上15 m）より下へ行かない', low >= floorF - 1e-4, `最も低い鳥=地上${(low - e.params.groundY).toFixed(1)} m`);
+}
+
+// S02 近い順の7羽：群れを2倍に引き伸ばしても、バラバラにならずにまとまり直す
+{
+  const e = starling(400, 6);
+  run(e, 15);
+  const c = e.centroid.slice();
+  for (let i = 0; i < e.n; i++) { e.px[i] = c[0] + (e.px[i] - c[0]) * 2; e.py[i] = c[1] + (e.py[i] - c[1]) * 2; e.pz[i] = c[2] + (e.pz[i] - c[2]) * 2; }
+  run(e, 15); e.analyze();
+  check('S02 ムクドリ 引き伸ばしても15秒でまとまり直す（連結成分≤2）', e.stats.components <= 2, `連結成分=${e.stats.components}`);
+}
+
+// S03 ハヤブサの急降下：通り道に空洞があき、近い鳥から先に逃げ、どの鳥も減らない。S04 その後まとまりに戻る
+{
+  const e = starling(800, 8), floorF = e.params.groundY + e.params.minAlt;
+  run(e, 20); e.analyze();
+  let mvx = 0, mvy = 0, mvz = 0; for (let i = 0; i < e.n; i++) { mvx += e.vx[i]; mvy += e.vy[i]; mvz += e.vz[i]; }
+  const T = 1.2, c = [e.centroid[0] + mvx / e.n * T, e.centroid[1] + mvy / e.n * T, e.centroid[2] + mvz / e.n * T];   // 1.2秒後の群れの中心を狙う
+  const st = [c[0] - 20, c[1] + 35, c[2] + 10], L = Math.hypot(c[0] - st[0], c[1] - st[1], c[2] - st[2]), sp = L / T;
+  const pred = { x: st[0], y: st[1], z: st[2], vx: (c[0] - st[0]) / L * sp, vy: (c[1] - st[1]) / L * sp, vz: (c[2] - st[2]) / L * sp };
+  const n0 = e.n, distAim = [], reactT = new Float32Array(e.n).fill(-1);
+  for (let i = 0; i < e.n; i++) distAim.push(Math.hypot(e.px[i] + e.vx[i] * T - c[0], e.py[i] + e.vy[i] * T - c[1], e.pz[i] + e.vz[i] * T - c[2]));
+  e.predator = pred;
+  let hole = 1e9, t = 0, low = 1e9;
+  run(e, 3, () => {
+    pred.x += pred.vx * DT; pred.y += pred.vy * DT; pred.z += pred.vz * DT; t += DT;
+    let md = 1e9;
+    for (let i = 0; i < e.n; i++) { md = Math.min(md, Math.hypot(e.px[i] - pred.x, e.py[i] - pred.y, e.pz[i] - pred.z)); if (reactT[i] < 0 && e.stress[i] > 0.3) reactT[i] = t; }
+    if (Math.abs(t - T) < 0.2) hole = Math.min(hole, md);
+    low = Math.min(low, minY(e));
+  });
+  e.predator = null;
+  let nt = 0, nn = 0, ft = 0, nf = 0;
+  for (let i = 0; i < e.n; i++) if (reactT[i] >= 0) { if (distAim[i] < 6) { nt += reactT[i]; nn++; } else if (distAim[i] > 12) { ft += reactT[i]; nf++; } }
+  check('S03 ハヤブサ 通り道に空洞があく（群れの中心付近で最も近い鳥 > 2 m）', hole > 2, `最も近い鳥=${hole.toFixed(2)} m`);
+  check('S03 ハヤブサ 近い鳥ほど先に逃げる', nn > 0 && (nf === 0 || nt / nn < ft / nf), `近く ${nn}羽 平均${(nt / Math.max(1, nn)).toFixed(2)}秒 / 遠く ${nf}羽 平均${(ft / Math.max(1, nf)).toFixed(2)}秒`);
+  check('S03 ハヤブサ 鳥は減らない', e.n === n0, `n=${e.n}`);
+  check('S06 ハヤブサから逃げても最低高度より下へ行かない', low >= floorF - 1e-4, `地上${(low - e.params.groundY).toFixed(1)} m`);
+  let back = -1;
+  for (let k = 1; k <= 10 && back < 0; k++) { run(e, 1); e.analyze(); if (e.stats.components <= 2) back = k; }
+  check('S04 ハヤブサが去って10秒以内にまとまりへ戻る（連結成分≤2）', back > 0, back > 0 ? `${back}秒後` : `連結成分=${e.stats.components}`);
+}
+
+// S07 負荷：2000羽で1回の更新が12 ms未満（PC）、NaNなし
+{
+  const e = starling(2000, 11);
+  run(e, 3);
+  let t0 = Date.now(); run(e, 10); const ms = (Date.now() - t0) / 300;
+  check('S07 ムクドリ 2000羽でNaNなし', !hasNaN(e));
+  check('S07 ムクドリ 2000羽で1更新 12ms未満（PC基準）', ms < 12, `${ms.toFixed(2)} ms/更新`);
+}
+
+// 種類の切り替え：ムクドリ → イワシに戻すと、イワシのパラメータで最初からやり直す
+{
+  const e = starling(300, 2);
+  run(e, 2);
+  e.setSpecies('sardine', 42);
+  check('切替 イワシに戻すとパラメータもイワシ', e.species === 'sardine' && e.params.cruise === 2.0 && !e.params.topoK && e.n === 100, `species=${e.species} n=${e.n}`);
+}
+
 // T13 乱数シード固定で再現できる
 {
   const a = new FlockEngine({ seed: 1234, growth: false }), b = new FlockEngine({ seed: 1234, growth: false });
