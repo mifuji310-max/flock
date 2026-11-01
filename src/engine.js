@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK simulation engine  v0.8
+ * FLOCK simulation engine  v0.9
+ *   v0.9 2026-11-01 止まり木（ムクドリ）：席を割り当てて降りる・止まる・ハヤブサで一斉に飛び立つ
  *   v0.8 2026-11-01 ムクドリ（species: 'starling'）：近い順の7羽で整列・結合、ハヤブサから逃げる、平たい群れ、最低高度
  *   v0.7 2026-11-01 成長の計画を2000匹まで延長（上限は maxCount で決まる）
  *   v0.6 2026-11-01 海底より下に餌をまかない・魚が海底より下へ潜らない
@@ -20,7 +21,7 @@
 (function (root) {
   'use strict';
 
-  var ENGINE_VERSION = '0.8';
+  var ENGINE_VERSION = '0.9';
 
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -96,6 +97,7 @@
     spawnScale: 1.9,                     // 生まれたときの群れの広がり
     predR: 14, predLead: 0.3,            // ハヤブサを怖がる距離（m）、ハヤブサの何秒先の位置を見て逃げるか
     groundY: -50, minAlt: 15, floorGuard: 6,   // 地面、平常時の最低高度、高度を保ち始める余裕
+    perchScareR: 30,                     // v0.9 止まり木：ハヤブサがこの距離に来たら飛び立つ（m）
     growMax: 80,
     bounds: [60, 20, 60]
   });
@@ -164,6 +166,11 @@
     this._keys = new Int32Array(27);
     this._knD = new Float32Array(16); this._knJ = new Int32Array(16);   // 近い順の近傍（ムクドリ）
     this.predator = null;                // ハヤブサ { x, y, z, vx, vy, vz, R }（入力層が設定。いないときは null）
+    // v0.9 止まり木：鳥ごとの状態 0=飛ぶ 1=席へ降りる 2=止まっている 3=飛び立ち待ち。席は perches の番号
+    this.pst = new Uint8Array(C); this.pseat = new Int32Array(C); this.ptk = new Float32Array(C);
+    this.rj = new Float32Array(C);       // 飛び立ってから群れへ戻るまでの残り時間（この間は目印の鳥を追う）
+    this.anchor = new Int32Array(C).fill(-1);
+    this.perches = []; this.perchedN = 0;
     this.obstacles = [];
     this.landmarks = [];               // 固定の目印（岩など）。ユーザーは編集できない
     this.repulsors = [];                 // 入力層が毎ステップ設定
@@ -193,7 +200,57 @@
     this.joined = this.n;
     this.obstacles.length = 0;
     this.foodN = 0; this.eaten = 0; this.feed.fill(0);
+    this.pst.fill(0); this.rj.fill(0); this.perches = []; this.perchedN = 0;
     this.analyze();
+  };
+
+  /* ---------------- 止まり木（v0.9） ----------------
+   * seats: [{ x, y, z, fx, fz }]（fx, fz は止まったときに向く水平の向き）
+   * 空を飛んでいる鳥のうち、席に近い順に席の数まで選び、近い席を割り当てる。選んだ鳥の番号の一覧を返す */
+  FlockEngine.prototype.perchAt = function (seats) {
+    var self = this, P = this.params;
+    // 空いた席を片づける（席の番号が変わるので、鳥の pseat も付け直す）
+    var keep = [], map = {};
+    for (var q = 0; q < this.perches.length; q++) if (this.perches[q].bird >= 0) { map[q] = keep.length; keep.push(this.perches[q]); }
+    for (var i = 0; i < this.n; i++) if (this.pst[i]) this.pseat[i] = map[this.pseat[i]];
+    this.perches = keep;
+    // すでに止まっている鳥と重なる席は使わない
+    var fresh = seats.filter(function (st) {
+      for (var k = 0; k < keep.length; k++) { var o = keep[k]; if (Math.abs(o.x - st.x) < 0.25 && Math.abs(o.y - st.y) < 0.25 && Math.abs(o.z - st.z) < 0.25) return false; }
+      return true;
+    });
+    if (!fresh.length) return [];
+    var cx = 0, cy = 0, cz = 0;
+    fresh.forEach(function (st) { cx += st.x; cy += st.y; cz += st.z; });
+    cx /= fresh.length; cy /= fresh.length; cz /= fresh.length;
+    var cand = [];
+    for (i = 0; i < this.n; i++) if (this.pst[i] === 0) cand.push([i, Math.hypot(this.px[i] - cx, this.py[i] - cy, this.pz[i] - cz)]);
+    cand.sort(function (a, b) { return a[1] - b[1]; });
+    var take = Math.min(fresh.length, cand.length), free = fresh.slice(), out = [];
+    for (var c = 0; c < take; c++) {
+      var b = cand[c][0], best = 0, bd = 1e18;
+      for (var f = 0; f < free.length; f++) {
+        var dx = free[f].x - self.px[b], dy = free[f].y - self.py[b], dz = free[f].z - self.pz[b], d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < bd) { bd = d2; best = f; }
+      }
+      var seat = free.splice(best, 1)[0];
+      seat.bird = b;
+      this.pseat[b] = this.perches.length; this.perches.push(seat);
+      this.pst[b] = 1; this.stress[b] = 0;
+      out.push(b);
+    }
+    return out;
+  };
+  // 降りている途中の鳥を空へ戻す（2本指の誤操作の取り消し用）
+  FlockEngine.prototype.releaseBirds = function (list) {
+    for (var k = 0; k < list.length; k++) { var b = list[k]; if (this.pst[b]) { this.perches[this.pseat[b]].bird = -1; this.pst[b] = 0; } }
+  };
+  // 止まっている鳥（と降りている途中の鳥）を飛び立たせる。点 (x, y, z) に近い鳥から 0〜0.5 秒の遅れで、波のように
+  FlockEngine.prototype.scarePerched = function (x, y, z) {
+    for (var i = 0; i < this.n; i++) {
+      if (this.pst[i] === 1) { this.perches[this.pseat[i]].bird = -1; this.pst[i] = 0; this.stress[i] = 0.6; this.rj[i] = 15; this.anchor[i] = -1; }
+      else if (this.pst[i] === 2) { this.pst[i] = 3; this.ptk[i] = Math.min(0.5, Math.hypot(this.px[i] - x, this.py[i] - y, this.pz[i] - z) / 120); }
+    }
   };
 
   // v0.8: 生きものの種類を切り替える（パラメータを入れ替えて最初からやり直す）
@@ -396,7 +453,9 @@
     var floorF = P.groundY != null ? P.groundY + P.minAlt : -B[1];   // 平常時に保つ一番低い高さ
     var envK = P.envScale || 1, flatten = P.flatten || 0;
 
+    var pst = this.pst, rj = this.rj, perchedN = 0, scareP = false;
     for (var i = 0; i < n; i++) {
+      if (pst[i]) { if (this._perchStep(i, dt, pred)) scareP = true; if (pst[i] === 2) perchedN++; continue; }
       var x = px[i], y = py[i], z = pz[i];
       var ux = vx[i], uy = vy[i], uz = vz[i];
       var sp = Math.sqrt(ux * ux + uy * uy + uz * uz);
@@ -426,6 +485,7 @@
               var d = Math.sqrt(d2), w = 1 - d / rSepI;
               sX -= ddx / d * w; sY -= ddy / d * w; sZ -= ddz / d * w;
             }
+            if (pst[j]) continue;   // v0.9 降りている・止まっている鳥は、空の群れの仲間にしない
             if (flock[j] === 0) mainNb = true;
             if (kn === topoK && d2 >= knD[kn - 1]) continue;
             if ((ddx * fx + ddy * fy + ddz * fz) < P.blindCos * Math.sqrt(d2)) continue;   // 真後ろの死角
@@ -496,9 +556,19 @@
       var Gx = 0, Gy = 0, Gz = 0;
       // v0.8 ムクドリ：群れの中心から離れた個体ほど、弱く中心へ寄る（分かれた群れが再び1つに戻る）
       if (P.wCenter && mainN > 0 && flock[i] === 0) {
-        var kx = cxm - x, ky = (cym - y) * 0.3, kz = czm - z, kl = Math.sqrt(kx * kx + ky * ky + kz * kz);
+        var kx = cxm - x, ky = (cym - y) * 0.3, kz = czm - z, kl = Math.sqrt(kx * kx + ky * ky + kz * kz) || 1;
         var kOut = kl / (this.spread * 1.2 + 4) - 1;
-        if (kOut > 0) { var kw = (kOut > 1 ? 1 : kOut) * P.wCenter; Gx += kx / kl * kw; Gy += ky / kl * kw; Gz += kz / kl * kw; }
+        if (this.rj[i] > 0) {   // v0.9 飛び立った直後：空に残っていた鳥を1羽目印にして追いかけ、群れに混ざるまで（最長15秒）
+          var an = this.anchor[i];
+          if (an < 0 || an >= n || this.pst[an] || this.rj[an] > 0) an = this.anchor[i] = this._pickAnchor();
+          if (an >= 0) {
+            var rx_ = px[an] + vx[an] * 0.5 - x, ry_ = py[an] + vy[an] * 0.5 - y, rz_ = pz[an] + vz[an] * 0.5 - z, rl_ = Math.sqrt(rx_ * rx_ + ry_ * ry_ + rz_ * rz_) || 1;
+            if (rl_ < 3) this.rj[i] = 0;
+            Gx += rx_ / rl_ * 2.0; Gy += ry_ / rl_ * 2.0; Gz += rz_ / rl_ * 2.0;
+          }
+          this.rj[i] -= dt;
+        }
+        else if (kOut > 0) { var kw = (kOut > 1 ? 1 : kOut) * P.wCenter; Gx += kx / kl * kw; Gy += ky / kl * kw; Gz += kz / kl * kw; }
       }
       if (mainN > 0 && (flock[i] !== 0 || this.iso[i] > 1.5)) {
         var hx = cxm - x, hy = (cym - y) * 0.5, hz = czm - z, hl = Math.sqrt(hx * hx + hy * hy + hz * hz);
@@ -683,6 +753,7 @@
       var target = P.cruise * this.speedBias[i];
       if (spdN > 0) target += (spdSum / spdN - target) * P.speedMatch;
       target += (P.panicSpeed - P.cruise) * (panic + 0.35 * fe) + 0.8 * oU;
+      if (rj[i] > 0) target += P.cruise * 0.45;   // v0.9 飛び立った鳥は、群れに追いつくまで速めに飛ぶ
       target = clamp(target, P.minSpeed, P.panicSpeed);
       var acc = (P.maxAccel + (P.panicAccel - P.maxAccel) * Math.max(panic, fe * 0.5)) * dt;
       var ns = sp + clamp(target - sp, -acc, acc);
@@ -701,6 +772,7 @@
     // 積分・後処理
     var joinedNow = 0, maxS = 0;
     for (i = 0; i < n; i++) {
+      if (pst[i]) { if (flock[i] === 0) joinedNow++; continue; }
       var X = px[i] + nvx[i] * dt, Y = py[i] + nvy[i] * dt, Z = pz[i] + nvz[i] * dt;
       var VX = nvx[i], VY = nvy[i], VZ = nvz[i];
       // めり込み防止（最後の保険）：最短方向へ段階的に押し出す
@@ -722,7 +794,8 @@
       this.inside[i] = ins;
       // 海底より下へは出さない（最後の保険。v0.6）
       var flMin = P.groundY != null ? floorF : P.bodyRadius - P.bounds[1];
-      if (Y < flMin) { Y = flMin; if (VY < 0) VY = 0; }
+      if (py[i] < flMin) { if (Y < py[i]) { Y = py[i]; if (VY < 0) VY = 0; } }   // v0.9 止まり木から飛び立った鳥：下がらずに上昇させる
+      else if (Y < flMin) { Y = flMin; if (VY < 0) VY = 0; }
       // NaN・無限大のガード
       if (!(isFinite(X) && isFinite(Y) && isFinite(Z) && isFinite(VX) && isFinite(VY) && isFinite(VZ))) {
         X = cxm + (this.rng() - 0.5); Y = cym + (this.rng() - 0.5); Z = czm + (this.rng() - 0.5);
@@ -739,16 +812,55 @@
     }
     this.joined = joinedNow;
     this.stats.maxStress = maxS;
+    this.perchedN = perchedN;
+    if (scareP && pred) this.scarePerched(pred.x, pred.y, pred.z);
     this._updateCentroid();
+  };
+
+  // v0.9 飛び立った鳥の目印：空に残っていた鳥から1羽を選ぶ
+  FlockEngine.prototype._pickAnchor = function () {
+    for (var k = 0; k < 30; k++) { var j = Math.floor(this.rng() * this.n); if (!this.pst[j] && !(this.rj[j] > 0) && this.flock[j] === 0) return j; }
+    return -1;
+  };
+
+  // v0.9 止まり木の鳥を1歩進める。ハヤブサが近づいたら true を返す（全員を飛び立たせる合図）
+  FlockEngine.prototype._perchStep = function (i, dt, pred) {
+    var P = this.params, st = this.pst[i], seat = this.perches[this.pseat[i]];
+    var x = this.px[i], y = this.py[i], z = this.pz[i];
+    this.ppx[i] = x; this.ppy[i] = y; this.ppz[i] = z;
+    this.nstress[i] = this.stress[i] = 0; this.nfeed[i] = 0;
+    var scared = !!(pred && st !== 3 && Math.hypot(pred.x - x, pred.y - y, pred.z - z) < P.perchScareR);
+    if (st === 1) {   // 席へ向かう：遠いうちは席の少し上を狙い、ゆるい弧を描いて降りる
+      var dx = seat.x - x, dy = seat.y - y, dz = seat.z - z, d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (d < 0.3) { this.pst[i] = 2; this.px[i] = seat.x; this.py[i] = seat.y; this.pz[i] = seat.z; this.vx[i] = seat.fx * 0.01; this.vy[i] = 0; this.vz[i] = seat.fz * 0.01; return scared; }
+      var lift = d > 6 ? Math.min(d * 0.25, 10) : 0, ty = dy + lift, tl = Math.sqrt(dx * dx + ty * ty + dz * dz) || 1;
+      var sp = clamp(d * 0.9, 1.2, P.cruise), k = Math.min(1, dt * 4);
+      this.vx[i] += (dx / tl * sp - this.vx[i]) * k; this.vy[i] += (ty / tl * sp - this.vy[i]) * k; this.vz[i] += (dz / tl * sp - this.vz[i]) * k;
+      var nx = x + this.vx[i] * dt, ny = y + this.vy[i] * dt, nz = z + this.vz[i] * dt;
+      if (ny < P.groundY + P.bodyRadius) ny = P.groundY + P.bodyRadius;   // 地面より下へは行かない
+      this.px[i] = nx; this.py[i] = ny; this.pz[i] = nz;
+    } else if (st === 2) {   // 止まっている：席に留まり、ときどき向きを少し変える
+      this.px[i] = seat.x; this.py[i] = seat.y; this.pz[i] = seat.z;
+      if (this.rng() < dt * 0.15) { var a = (this.rng() - 0.5) * 0.6, ca = Math.cos(a), sa = Math.sin(a), fx = seat.fx; seat.fx = fx * ca - seat.fz * sa; seat.fz = fx * sa + seat.fz * ca; }
+      this.vx[i] = seat.fx * 0.01; this.vy[i] = 0; this.vz[i] = seat.fz * 0.01;
+    } else {   // 飛び立ち待ち：遅れの時間がたったら、前へ・上へ飛び立つ
+      this.ptk[i] -= dt;
+      if (this.ptk[i] <= 0) {
+        seat.bird = -1; this.pst[i] = 0; this.stress[i] = 0.7; this.rj[i] = 15; this.anchor[i] = -1;
+        this.vx[i] = seat.fx * 5 + (this.rng() - 0.5) * 2; this.vy[i] = 6 + this.rng() * 2; this.vz[i] = seat.fz * 5 + (this.rng() - 0.5) * 2;
+      }
+    }
+    return scared;
   };
 
   FlockEngine.prototype._updateCentroid = function () {
     var n = this.n, sx = 0, sy = 0, sz = 0, m = 0;
-    for (var i = 0; i < n; i++) if (this.flock[i] === 0) { sx += this.px[i]; sy += this.py[i]; sz += this.pz[i]; m++; }
+    var pst = this.pst;
+    for (var i = 0; i < n; i++) if (this.flock[i] === 0 && !pst[i]) { sx += this.px[i]; sy += this.py[i]; sz += this.pz[i]; m++; }
     if (m === 0) return;
     sx /= m; sy /= m; sz /= m;
     var s2 = 0;
-    for (i = 0; i < n; i++) if (this.flock[i] === 0) {
+    for (i = 0; i < n; i++) if (this.flock[i] === 0 && !pst[i]) {
       var dx = this.px[i] - sx, dy = this.py[i] - sy, dz = this.pz[i] - sz;
       s2 += dx * dx + dy * dy + dz * dz;
     }
@@ -765,7 +877,7 @@
     for (var i = 0; i < n; i++) {
       var s = Math.hypot(this.vx[i], this.vy[i], this.vz[i]);
       spSum += s;
-      if (this.flock[i] === 0 && s > 1e-6) { hx += this.vx[i] / s; hy += this.vy[i] / s; hz += this.vz[i] / s; m++; }
+      if (this.flock[i] === 0 && s > 1e-6 && !this.pst[i]) { hx += this.vx[i] / s; hy += this.vy[i] / s; hz += this.vz[i] / s; m++; }
       if (this.nn[i] > 0) { nnSum += this.nn[i]; nnN++; if (this.nn[i] < nnMin) nnMin = this.nn[i]; }
     }
     // 連結成分（近傍グラフ: 距離 < rAli）
@@ -777,14 +889,14 @@
     for (i = 0; i < n; i++) {
       var k = grid.cellKeys(this.px[i], this.py[i], this.pz[i], keys);
       for (var q = 0; q < k; q++) for (var j = grid.head[keys[q]]; j !== -1; j = grid.next[j]) {
-        if (j <= i) continue;
+        if (j <= i || this.pst[i] || this.pst[j]) continue;
         var dx = this.px[j] - this.px[i], dy = this.py[j] - this.py[i], dz = this.pz[j] - this.pz[i];
         if (dx * dx + dy * dy + dz * dz < r2) { var a = find(i), b = find(j); if (a !== b) parent[a] = b; }
       }
     }
     // 小さな断片（3匹未満）は数えない
     var sizes = new Map();
-    for (i = 0; i < n; i++) { var rt = find(i); sizes.set(rt, (sizes.get(rt) || 0) + 1); }
+    for (i = 0; i < n; i++) { if (this.pst[i]) continue; var rt = find(i); sizes.set(rt, (sizes.get(rt) || 0) + 1); }
     var comps = 0; sizes.forEach(function (v) { if (v >= 3) comps++; });
     var st = this.stats;
     st.P = m ? Math.hypot(hx, hy, hz) / m : 0;

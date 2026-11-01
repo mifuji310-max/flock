@@ -1,10 +1,17 @@
 <title>FLOCK</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!--
-  FLOCK 群れシミュレータ  プロトタイプ v0.16「TOUCH & AVOID」
-  準拠：FLOCK 群れシミュレータ 開発設計書 v0.5（2026-11-01）
+  FLOCK 群れシミュレータ  プロトタイプ v0.17「TOUCH & AVOID」
+  準拠：FLOCK 群れシミュレータ 開発設計書 v0.6（2026-11-01）
 
   更新履歴
+  v0.17 2026-11-01  ムクドリモードに止まり木を追加（設計書 v0.6 §16.14）。
+                    ・電線や木をタップすると、群れの一部がそこへ降りて止まる（空をタップすると今までどおりハヤブサ）
+                    ・電線：タップした区間の3本に0.35m間隔でずらりと並ぶ。木：樹冠の中と上の枝先に入る。あふれた鳥は空を飛び続ける
+                    ・止まった鳥は翼をたたむ。ハヤブサが30m以内に来るか、空をタップしてハヤブサを出すと、近い鳥から波のように飛び立つ
+                    ・飛び立った鳥は、空に残っていた鳥を1羽目印にして少し速めに追い、群れに混ざる
+                    ・止まっている鳥がいるときは、カメラが空の群れと止まり木の両方を映す
+                    ・開発者表示に「止まり木」（止まっている羽数）を追加。エンジン v0.9
   v0.16 2026-11-01  ムクドリモードの見え方と2本指の操作を改善（実機確認のフィードバック）。
                     ・観る人の位置を群れに近づけ（125 m → 85 m）、群れが画面の短い辺の約7割に収まるように映す
                     ・カメラは群れの進む先を少し先回りして向き、群れは画面の中央やや上に来る。横画面は画角の下限を広めに
@@ -385,6 +392,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 <aside class="debug" id="debug" hidden>
   <dl>
     <dt>個体数</dt><dd id="dN">-</dd>
+    <dt>止まり木</dt><dd id="dPerch">-</dd>
     <dt>FPS</dt><dd id="dFps">-</dd>
     <dt>更新 ms</dt><dd id="dSim">-</dd>
     <dt>偏極度 P</dt><dd id="dP">-</dd>
@@ -548,6 +556,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     <details class="hist">
       <summary>更新履歴</summary>
       <p class="ver">
+      v0.17（2026-11-01）ムクドリ：止まり木（電線や木をタップするとそこに止まる）<br>
       v0.16（2026-11-01）ムクドリ：群れを近くに映す、2本指で動きすぎないように<br>
       v0.15（2026-11-01）ムクドリモード（夕暮れの駅前から見上げる・ハヤブサ）<br>
       v0.14（2026-11-01）画質に「大群」（最大2000匹）、自動は端末に合わせて最大1000匹まで。裏モード（開始匹数・更新履歴）<br>
@@ -568,6 +577,6 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </details>
     <div class="btn-row"><button class="chip" id="btnDevHide">裏モードを閉じる</button></div>
   </section>
-  <p class="ver" id="ver"><b>FLOCK v0.16</b> TOUCH &amp; AVOID<br>
+  <p class="ver" id="ver"><b>FLOCK v0.17</b> TOUCH &amp; AVOID<br>
   個体は人工モデルで、実際の魚や鳥の生態を厳密に再現したものではありません。</p>
 </section>

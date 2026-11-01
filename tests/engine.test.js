@@ -215,6 +215,55 @@ function minY(e) { let m = 1e9; for (let i = 0; i < e.n; i++) m = Math.min(m, e.
   check('S07 ムクドリ 2000羽で1更新 12ms未満（PC基準）', ms < 12, `${ms.toFixed(2)} ms/更新`);
 }
 
+// S10〜S12 止まり木（v0.17 / 設計書 §16.14）
+function wireSeats(e, x0, x1, z, h) {   // 地上 h m の水平な電線に 0.35 m 間隔の席
+  const s = [];
+  for (let x = x0; x <= x1; x += 0.35) s.push({ x, y: e.params.groundY + h, z, fx: 0, fz: 1 });
+  return s;
+}
+{
+  const e = starling(600, 21), G = e.params.groundY;
+  run(e, 10);
+  const seats = wireSeats(e, -20, 20, 30, 10.7);   // 約115席
+  const chosen = e.perchAt(seats);
+  check('S10 止まり木 席の数まで降りる鳥が選ばれる', chosen.length === seats.length, `選ばれた=${chosen.length} 席=${seats.length}`);
+  let low = 1e9;
+  run(e, 25, () => { for (let i = 0; i < e.n; i++) if (!e.pst[i]) low = Math.min(low, e.py[i]); });
+  let on = 0, far = 0;
+  for (const b of chosen) { if (e.pst[b] === 2) on++; const st = e.perches[e.pseat[b]]; if (Math.hypot(e.px[b] - st.x, e.py[b] - st.y, e.pz[b] - st.z) > 0.1) far++; }
+  check('S10 止まり木 25秒で全員が電線に止まり、席から0.1 m以内に並ぶ', on === chosen.length && far === 0, `止まった=${on} 席から離れている=${far}`);
+  let flying = 0; for (let i = 0; i < e.n; i++) if (!e.pst[i]) flying++;
+  check('S10 止まり木 あふれた鳥は空を飛び続ける（最低高度より上）', flying === e.n - chosen.length && low >= G + e.params.minAlt - 1e-4, `空=${flying}羽 最も低い=地上${(low - G).toFixed(1)} m`);
+  // S12 ハヤブサが近くに来ると一斉に飛び立ち、空の群れと1つになる
+  e.predator = { x: 0, y: G + 25, z: 30, vx: 0, vy: -10, vz: 0 };
+  run(e, 1.5);
+  e.predator = null;
+  let still = 0; for (let i = 0; i < e.n; i++) if (e.pst[i]) still++;
+  check('S12 止まり木 ハヤブサが来ると全員が飛び立つ', still === 0, `止まったまま=${still}`);
+  // 飛び立った鳥のうち、空に残っていた鳥の 3 m 以内にいる割合（＝群れに混ざった割合）
+  const took = new Set(chosen);
+  function mixed() { let m = 0; for (const b of chosen) { let md = 1e9; for (let j = 0; j < e.n; j++) if (!took.has(j)) md = Math.min(md, Math.hypot(e.px[j] - e.px[b], e.py[j] - e.py[b], e.pz[j] - e.pz[b])); if (md < 3) m++; } return m / chosen.length; }
+  let back = -1, mx = 0;
+  for (let k = 1; k <= 10 && back < 0; k++) { run(e, 1); mx = mixed(); if (mx >= 0.8) back = k; }
+  check('S12 止まり木 飛び立って10秒以内に8割以上が空の群れに混ざる', back > 0, back > 0 ? `${back}秒後` : `混ざった割合=${(mx * 100).toFixed(0)}%`);
+  let low2 = 1e9; for (let i = 0; i < e.n; i++) low2 = Math.min(low2, e.py[i]);
+  check('S12 止まり木 飛び立った鳥が地面より下へ行かない', low2 > G, `最も低い=地上${(low2 - G).toFixed(1)} m`);
+}
+{   // S11 木：樹冠の中の席に降りる
+  const e = starling(400, 22), G = e.params.groundY, T = { x: 10, y: G + 9, z: 10, r: 4 };
+  run(e, 8);
+  const seats = [];
+  for (let k = 0; k < 120; k++) {   // 樹冠（横 r・縦 0.75r の楕円体）の中に、半径の 40〜95% の位置で席を作る
+    const a = k * 2.4, el = (((k * 37) % 100) / 100 - 0.5) * 2.4, rr = 0.4 + ((k * 53) % 56) / 100;
+    seats.push({ x: T.x + Math.cos(a) * Math.cos(el) * T.r * rr, y: T.y + Math.sin(el) * T.r * 0.75 * rr, z: T.z + Math.sin(a) * Math.cos(el) * T.r * rr, fx: Math.cos(a), fz: Math.sin(a) });
+  }
+  const chosen = e.perchAt(seats);
+  run(e, 25);
+  let on = 0, out = 0, low = 1e9;
+  for (const b of chosen) { if (e.pst[b] === 2) on++; if (Math.hypot((e.px[b] - T.x) / T.r, (e.py[b] - T.y) / (T.r * 0.75), (e.pz[b] - T.z) / T.r) > 1.05) out++; low = Math.min(low, e.py[b]); }
+  check('S11 止まり木 木の樹冠の中に止まる', on === chosen.length && out === 0 && low > G, `止まった=${on}/${chosen.length} 樹冠の外=${out}`);
+}
+
 // 種類の切り替え：ムクドリ → イワシに戻すと、イワシのパラメータで最初からやり直す
 {
   const e = starling(300, 2);

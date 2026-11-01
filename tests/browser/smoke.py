@@ -152,6 +152,19 @@ async def main():
                 await page.wait_for_timeout(4500)
                 r = await page.evaluate(GESTURE_STAR, ['drag'])
                 check('ムクドリ：なぞるとハヤブサが追いかける', r['seen'] and r['mode'] == 'chase', str(r))
+                # v0.17 止まり木（S13）：電線をタップするとそこへ降りる鳥が出る。空のタップでは降りない
+                await page.wait_for_timeout(4000)
+                # カメラは群れを追って動くので、電線が画面に入るまで最大20秒待つ
+                pt = await page.evaluate("""async () => { for (let w = 0; w < 100; w++) { for (let k=0;k<4;k++) for (const t of [0.2,0.35,0.5,0.65,0.8]) { const q=FLOCK.debugStar.debugWirePoint(k,1,t); const s=FLOCK.debugScreen(q[0],q[1],q[2]); if (s && s[0]>10 && s[0]<innerWidth-10 && s[1]>80 && s[1]<innerHeight-140 && FLOCK.debugPick(s[0],s[1])==='wire') return s; } await new Promise(r=>setTimeout(r,200)); } return null; }""")
+                check('止まり木：画面に電線が見えていて、電線と判定される', pt is not None)
+                if pt:
+                    n1 = await page.evaluate("""async ([x,y]) => { const cv=document.getElementById('scene'), e=FLOCK.debugEngine;
+                      const ev=t=>cv.dispatchEvent(new PointerEvent(t,{pointerId:1,clientX:x,clientY:y,bubbles:true,pointerType:'mouse',button:0}));
+                      ev('pointerdown'); ev('pointerup'); await new Promise(r=>setTimeout(r,300));
+                      let c=0; for(let i=0;i<e.n;i++) if(e.pst[i]) c++; return c; }""", pt)
+                    check('止まり木：電線をタップすると鳥が降り始める', n1 > 0, f'降りる鳥={n1}')
+                    sky = await page.evaluate("FLOCK.debugPick(innerWidth/2, 120)")
+                    check('止まり木：空は空と判定される', sky == 'sky', sky)
                 # 切り替え：イワシに戻し、設定が保たれることを確かめる
                 await page.click('#btnSettings')
                 await page.click('#optSpecies button[data-s=sardine]')

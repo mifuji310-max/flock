@@ -1,5 +1,7 @@
 /* =====================================================================
- * FLOCK starling view v0.16（設計書 v0.5 §16）  v0.16: 観る人を近づけたので街灯を奥へ — ムクドリモードの描画（Three.js r128）
+ * FLOCK starling view v0.17（設計書 v0.6 §16）
+ *   v0.17: 止まり木（電線と木の席・タップの判定・止まった鳥は翼をたたむ）
+ *   v0.16: 観る人を近づけたので街灯を奥へ — ムクドリモードの描画（Three.js r128）
  *   夕暮れの空・駅前の街のシルエット・羽ばたく鳥・ハヤブサ
  *   座標はエンジンと同じ（1単位 = 1 m）。地面は y = groundY（−50）。観る人は地上1.6 m に立つ
  *   app.js から FLOCK.createStarlingView(opts) で作り、表示の切り替えと毎フレームの更新を呼ぶ
@@ -154,20 +156,22 @@
     group.add(trees);
 
     var lampU = { uLamp: { value: 0.0 } };
-    var wires = (function () {   // 電柱と、たるんだ電線（線で描く）。街灯の柱も
-      var r = makeRng(5), pts = [], poles = [[-58, 30], [-22, 33], [14, 31], [50, 34], [86, 30]];
+    // 電柱と、たるんだ電線。電線の形（wirePt）は、止まり木の席でも使う
+    var POLES = [[-58, 30], [-22, 33], [14, 31], [50, 34], [86, 30]];
+    function wirePt(k, w, t) {   // 区間 k（電柱 k → k+1）の w 本目（0〜2）の、割合 t の位置
+      var a = POLES[k], b = POLES[k + 1], ox = (w - 1) * 1.0, hy = GY + 10.6 + (w === 1 ? 0.6 : 0);
+      return [a[0] + ox + (b[0] - a[0]) * t, hy - 4 * t * (1 - t) * 1.3, a[1] + (b[1] - a[1]) * t];
+    }
+    var wires = (function () {
+      var pts = [];
       function line(a, b) { pts.push(a[0], a[1], a[2], b[0], b[1], b[2]); }
-      poles.forEach(function (p) {
+      POLES.forEach(function (p) {
         line([p[0], GY, p[1]], [p[0], GY + 11.5, p[1]]);
         line([p[0] - 1.2, GY + 10.6, p[1]], [p[0] + 1.2, GY + 10.6, p[1]]);   // 腕木
       });
-      for (var k = 0; k < poles.length - 1; k++) for (var w = 0; w < 3; w++) {
-        var a = poles[k], b = poles[k + 1], ox = (w - 1) * 1.0, hy = GY + 10.6 + (w === 1 ? 0.6 : 0), N = 16;
-        for (var s = 0; s < N; s++) {
-          var t0 = s / N, t1 = (s + 1) / N;
-          var sag0 = 4 * t0 * (1 - t0) * 1.3, sag1 = 4 * t1 * (1 - t1) * 1.3;
-          line([a[0] + ox + (b[0] - a[0]) * t0, hy - sag0, a[1] + (b[1] - a[1]) * t0], [a[0] + ox + (b[0] - a[0]) * t1, hy - sag1, a[1] + (b[1] - a[1]) * t1]);
-        }
+      for (var k = 0; k < POLES.length - 1; k++) for (var w = 0; w < 3; w++) {
+        var N = 16;
+        for (var s = 0; s < N; s++) line(wirePt(k, w, s / N), wirePt(k, w, (s + 1) / N));
       }
       var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
       return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x0c0a10, fog: false }));
@@ -209,14 +213,19 @@
     }
     var birdGeo = birdGeometry(0.85, 0.12);
     var flapAttr = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1), ampAttr = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1);
-    flapAttr.setUsage(THREE.DynamicDrawUsage); ampAttr.setUsage(THREE.DynamicDrawUsage);
-    birdGeo.setAttribute('aFlap', flapAttr); birdGeo.setAttribute('aAmp', ampAttr);
+    var foldAttr = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1);   // v0.17: 1 = 止まって翼をたたんだ形
+    flapAttr.setUsage(THREE.DynamicDrawUsage); ampAttr.setUsage(THREE.DynamicDrawUsage); foldAttr.setUsage(THREE.DynamicDrawUsage);
+    birdGeo.setAttribute('aFlap', flapAttr); birdGeo.setAttribute('aAmp', ampAttr); birdGeo.setAttribute('aFold', foldAttr);
     var FLAP_VS = ['#include <begin_vertex>',
       '#include <begin_vertex>\nfloat wx = abs(position.x);\nif (wx > 0.045) { float ang = sin(aFlap) * aAmp * 1.05 + 0.08;\n' +
-      '  transformed.y += wx * sin(ang); transformed.x = sign(position.x) * (0.045 + (wx - 0.045) * cos(ang)); }'];
+      '  float wl = (wx - 0.045) * (1.0 - 0.86 * aFold);\n' +   // たたむと翼が胴に沿って短くなる
+      '  transformed.y += wl * sin(ang) * (1.0 - aFold) - 0.02 * aFold; transformed.x = sign(position.x) * (0.045 + wl * cos(ang));\n' +
+      '  transformed.z -= 0.18 * aFold * (wx - 0.045); }\n' +
+      // 止まった鳥は横から見られるので、平たい形に高さを付けて、ずんぐりした姿にする（肩が高く、頭と尾は低い）
+      'transformed.y += aFold * clamp(0.42 - abs(position.z - 0.05) * 0.8, 0.0, 0.42) * (0.55 + 0.45 * min(wx / 0.05, 1.0));'];
     var birdMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
     birdMat.onBeforeCompile = function (sh) {
-      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aFlap;\nattribute float aAmp;').replace(FLAP_VS[0], FLAP_VS[1]);
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute float aFlap;\nattribute float aAmp;\nattribute float aFold;').replace(FLAP_VS[0], FLAP_VS[1]);
     };
     var birds = new THREE.InstancedMesh(birdGeo, birdMat, cap);
     birds.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -329,7 +338,7 @@
     function update(alpha, dt, camera, viewH, clock, lite) {
       var n = engine.n, m = birds.instanceMatrix.array, P = engine.params;
       var px = engine.px, py = engine.py, pz = engine.pz, ppx = engine.ppx, ppy = engine.ppy, ppz = engine.ppz;
-      var vx = engine.vx, vy = engine.vy, vz = engine.vz, fl = flapAttr.array, am = ampAttr.array;
+      var vx = engine.vx, vy = engine.vy, vz = engine.vz, fl = flapAttr.array, am = ampAttr.array, fo = foldAttr.array, pst = engine.pst;
       var kH = 1 - Math.exp(-dt * 10), kR = 1 - Math.exp(-dt * 4), invDt = dt > 1e-4 ? 1 / dt : 0;
       camP.copy(camera.position);
       // 遠くの鳥が点として消えないよう、見かけの翼開長の下限（CSS px）
@@ -357,6 +366,7 @@
         var dx = X - camP.x, dy = Y - camP.y, dz = Z - camP.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
         var s = P.bodyLen * engine.size[i], spanPx = s * 1.7 * pxPerM / d;
         if (spanPx < MINPX) s *= MINPX / spanPx;
+        if (pst && pst[i] >= 2) { var bodyPx = s * pxPerM / d; if (bodyPx < 7) s *= 7 / bodyPx; }   // v0.17 止まった鳥は翼をたたんで小さくなるので、見かけの体長の下限を付ける
         var o = i * 16;
         m[o] = Xx * s; m[o + 1] = Xy * s; m[o + 2] = Xz * s; m[o + 3] = 0;
         m[o + 4] = Yx * s; m[o + 5] = Yy * s; m[o + 6] = Yz * s; m[o + 7] = 0;
@@ -367,11 +377,18 @@
         var g = Math.sin(clock * 1.9 + glideSeed[i]) + 0.6 * Math.sin(clock * 3.1 + glideSeed[i] * 1.7);
         var flapK = g > 0.55 ? 0.12 : 1;
         if (engine.stress[i] > 0.2) flapK = 1;
+        var foldT = 0;
+        if (pst && pst[i]) {   // v0.17 止まり木：降りる途中は羽ばたき、席の近くで翼を広げて減速、止まったら翼をたたむ
+          if (pst[i] === 1) { flapK = sp < 3 ? 0.25 : 1; }
+          else { flapK = 0; foldT = 1; }
+        }
+        if (i >= renderedN) fo[i] = foldT;
+        fo[i] += (foldT - fo[i]) * Math.min(1, dt * 6);
         am[i] = am[i] + (flapK - am[i]) * Math.min(1, dt * 10);
       }
       renderedN = n;
       birds.count = n;
-      birds.instanceMatrix.needsUpdate = true; flapAttr.needsUpdate = true; ampAttr.needsUpdate = true;
+      birds.instanceMatrix.needsUpdate = true; flapAttr.needsUpdate = true; ampAttr.needsUpdate = true; foldAttr.needsUpdate = true;
       skyU.uTime.value = clock;
       skyU.uCloud.value = lite ? 0 : 1;
       sky.position.copy(camP);
@@ -390,8 +407,67 @@
       }
     }
 
+    /* ---------------- 止まり木（v0.17 / 設計書 §16.14） ----------------
+     * 電線：タップした区間（電柱から電柱まで）の3本に 0.35 m 間隔の席。鳥は電線と直角の向きにそろう
+     * 木　：タップした1本の樹冠の中と枝先に約120席 */
+    var SEAT_GAP = 0.35, BIRD_UP = 0.09;
+    function wireSeats(k) {
+      var a = POLES[k], b = POLES[k + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]), out = [], r = makeRng(900 + k);
+      var px_ = -(b[1] - a[1]) / L, pz_ = (b[0] - a[0]) / L;   // 電線と直角の水平の向き
+      for (var w = 0; w < 3; w++) for (var d = 1.2; d < L - 1.2; d += SEAT_GAP) {
+        var q = wirePt(k, w, d / L), sg = r() < 0.7 ? 1 : -1;
+        out.push({ x: q[0], y: q[1] + BIRD_UP, z: q[2], fx: px_ * sg, fz: pz_ * sg });
+      }
+      return out;
+    }
+    function treeSeats(k) {
+      var T = TREES[k], out = [], r = makeRng(700 + k);
+      for (var q = 0; q < 120; q++) {
+        var a = r() * Math.PI * 2, el, rr;
+        if (q < 40) { el = 0.45 + r() * 0.9; rr = 1.0 + r() * 0.07; }   // 3分の1は樹冠の上の枝先（空を背にして見える）
+        else { el = (r() - 0.45) * 2.4; rr = 0.35 + r() * 0.5; }         // 残りは葉の中（隠れる）
+        out.push({ x: T.x + Math.cos(a) * Math.cos(el) * T.r * rr, y: T.y + Math.sin(el) * T.r * 0.75 * rr, z: T.z + Math.sin(a) * Math.cos(el) * T.r * rr, fx: Math.cos(a + 1.6), fz: Math.sin(a + 1.6) });
+      }
+      return out;
+    }
+    var prj = new THREE.Vector3();
+    function toScreen(x, y, z, camera, rect) {
+      prj.set(x, y, z).project(camera);
+      if (prj.z > 1 || prj.z < -1) return null;
+      return [(prj.x * 0.5 + 0.5) * rect.width + rect.left, (-prj.y * 0.5 + 0.5) * rect.height + rect.top];
+    }
+    function segDist(px_, py_, a, b) {
+      var dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy, t = l2 > 0 ? ((px_ - a[0]) * dx + (py_ - a[1]) * dy) / l2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(px_ - a[0] - dx * t, py_ - a[1] - dy * t);
+    }
+    // 画面の点 (sx, sy) が電線（24 px 以内）か木（樹冠の中か 12 px 以内）に当たれば、その席の一覧を返す。当たらなければ null（＝空）
+    function pickPerch(sx, sy, camera, rect) {
+      var best = null, bd = 1e9;
+      for (var k = 0; k < POLES.length - 1; k++) for (var w = 0; w < 3; w++) {
+        var prev = null;
+        for (var s = 0; s <= 16; s++) {
+          var q = wirePt(k, w, s / 16), sp = toScreen(q[0], q[1], q[2], camera, rect);
+          if (sp && prev) { var d = segDist(sx, sy, prev, sp); if (d < 24 && d < bd) { bd = d; best = { kind: 'wire', k: k }; } }
+          prev = sp;
+        }
+      }
+      var pxPerM = rect.height / (2 * Math.tan(camera.fov * Math.PI / 360));
+      for (var t = 0; t < TREES.length; t++) {
+        var T = TREES[t], c = toScreen(T.x, T.y, T.z, camera, rect);
+        if (!c) continue;
+        var dist = camera.position.distanceTo(prj.set(T.x, T.y, T.z)), rpx = T.r * pxPerM / dist;
+        var dd = Math.max(0, Math.hypot(sx - c[0], sy - c[1]) - rpx);
+        if (dd < 12 && dd < bd) { bd = dd; best = { kind: 'tree', k: t }; }
+      }
+      if (!best) return null;
+      best.seats = best.kind === 'wire' ? wireSeats(best.k) : treeSeats(best.k);
+      return best;
+    }
+
     return {
-      group: group, TREES: TREES,
+      group: group, TREES: TREES, pickPerch: pickPerch,
+      debugWirePoint: function (k, w, t) { return wirePt(k, w, t); },
       setVisible: function (v) { group.visible = v; if (!v) { falconApi.clear(); } },
       update: update, setTag: setTag, falcon: falconApi,
       setLit: function (v) { cityU.uLit.value = v; lamps.userData.mat.opacity = Math.max(0, Math.min(1, (v - 0.1) * 2.5)); },

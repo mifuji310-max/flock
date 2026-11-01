@@ -1,5 +1,5 @@
 /* =====================================================================
- * FLOCK app v0.16（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.17（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
  *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作
  * ===================================================================== */
 (function () {
@@ -527,9 +527,20 @@
     var c = engine.centroid, k = stSnap ? 1 : 1 - Math.exp(-dt * 2.0);
     if (stSnap) { cPrev.fromArray(c); cVel.set(0, 0, 0); }
     else if (dt > 0) { var kv = 1 - Math.exp(-dt * 1.5); cVel.x += ((c[0] - cPrev.x) / dt - cVel.x) * kv; cVel.y += ((c[1] - cPrev.y) / dt - cVel.y) * kv; cVel.z += ((c[2] - cPrev.z) / dt - cVel.z) * kv; cPrev.fromArray(c); }
-    var LEAD = 0.7;
-    camTarget.x += (c[0] + cVel.x * LEAD - camTarget.x) * k; camTarget.y += (c[1] + cVel.y * LEAD - camTarget.y) * k; camTarget.z += (c[2] + cVel.z * LEAD - camTarget.z) * k;
-    spreadSm += (engine.spread - spreadSm) * (stSnap ? 1 : 1 - Math.exp(-dt * 0.5));
+    var LEAD = 0.7, ax = c[0] + cVel.x * LEAD, ay = c[1] + cVel.y * LEAD, az = c[2] + cVel.z * LEAD, spT = engine.spread;
+    // v0.17 止まり木：止まっている（降りている）鳥がいるときは、空の群れとの中間を向き、両方が入るように画角を広げる
+    var pn = 0, pcx = 0, pcy = 0, pcz = 0;
+    for (var i = 0; i < engine.n; i++) if (engine.pst[i]) { pcx += engine.px[i]; pcy += engine.py[i]; pcz += engine.pz[i]; pn++; }
+    if (pn > 0) {
+      pcx /= pn; pcy /= pn; pcz /= pn;
+      var pext = 0;   // 止まっている鳥の広がり（電線の区間の長さの半分くらい）
+      for (i = 0; i < engine.n; i++) if (engine.pst[i]) pext = Math.max(pext, Math.hypot(engine.px[i] - pcx, engine.py[i] - pcy, engine.pz[i] - pcz));
+      var half = Math.hypot(ax - pcx, ay - pcy, az - pcz) / 2;
+      if (pn >= engine.n - 3) { ax = pcx; ay = pcy; az = pcz; spT = (pext + 4) / 1.8; }   // ほぼ全員が止まったら、止まり木を見る
+      else { ax = (ax + pcx) / 2; ay = (ay + pcy) / 2; az = (az + pcz) / 2; spT = Math.max(spT, (half + Math.max(pext, spT)) / 1.8); }
+    }
+    camTarget.x += (ax - camTarget.x) * k; camTarget.y += (ay - camTarget.y) * k; camTarget.z += (az - camTarget.z) * k;
+    spreadSm += (spT - spreadSm) * (stSnap ? 1 : 1 - Math.exp(-dt * 0.8));
     var dx = camTarget.x - VIEW_POS.x, dy = camTarget.y - VIEW_POS.y, dz = camTarget.z - VIEW_POS.z;
     var hd = Math.hypot(dx, dz) || 1, dist = Math.hypot(hd, dy), aspect = W / H;
     var hf = 2 * Math.atan((spreadSm * 1.8 + 6) / dist) / 0.72;   // v0.16: 群れの見かけの直径が、画面の短い辺の約7割
@@ -792,6 +803,7 @@
         fal.chasing = true;
         var fresh = !starView.falcon.active();
         starView.falcon.chase(tmpV.clone(), camera.position);
+        engine.scarePerched(tmpV.x, tmpV.y, tmpV.z);   // v0.17 ハヤブサが出たら、止まっている鳥は飛び立つ
         if (made && fresh) made.falcon = true;
       }
     }
@@ -847,7 +859,12 @@
     if (gesture === 'look' && look && !look.moved && e.type === 'pointerup' && mode === 'watch') toggleTagAt(look.sx, look.sy);
     if (gesture === 'falcon') {
       if (fal.chasing) starView.falcon.release();
-      else if (e.type === 'pointerup' && screenToPlane(fal.x0, fal.y0, camTarget, tmpV)) starView.falcon.dive(tmpV.clone(), camera.position);
+      else if (e.type === 'pointerup') {
+        // v0.17 止まり木：電線や木をタップしたら、そこへ降りる。空をタップしたらハヤブサ（止まっている鳥は飛び立つ）
+        var hit = starView.pickPerch(fal.x0, fal.y0, camera, canvas.getBoundingClientRect());
+        if (hit) engine.perchAt(hit.seats);
+        else if (screenToPlane(fal.x0, fal.y0, camTarget, tmpV)) { starView.falcon.dive(tmpV.clone(), camera.position); engine.scarePerched(tmpV.x, tmpV.y, tmpV.z); }
+      }
     }
     endSingle();
     if (!pointers.size) gesture = 'none';
@@ -957,11 +974,11 @@
     watch: 'タップで魚に色を付けられます。ドラッグで視点を回せます'
   };
   var HINTS_STAR = {   // v0.15 ムクドリ
-    touch: 'タップするとハヤブサが急降下します。なぞると群れを追いかけます',
+    touch: '空をタップするとハヤブサ。電線や木をタップすると、そこに止まります',
     watch: 'タップで鳥に色を付けられます。ドラッグで見る向きを変えられます'
   };
   var GUIDE_SEA = guide.innerHTML;
-  var GUIDE_SKY = '夕暮れの空を、ムクドリの群れが飛びます。<br>タップするとハヤブサが急降下。<br>なぞると群れを追いかけます。' +
+  var GUIDE_SKY = '夕暮れの空を、ムクドリの群れが飛びます。<br>空をタップするとハヤブサが急降下。<br>電線や木をタップすると、そこに止まります。' +
     '<span class="sub">2本指で見る向き・ズーム ／ 画面に触れると閉じます</span>';
   function showHint(m) {
     clearTimeout(hintTimer);
@@ -1442,6 +1459,7 @@
       metricT = 0;
       var st = engine.analyze();
       $('dN').textContent = engine.joined + ' / ' + engine.n;
+      $('dPerch').textContent = isStar() ? engine.perchedN + ' 羽' : '-';   // v0.17 止まっている羽数
       $('dFps').textContent = fps.toFixed(0);
       $('dSim').textContent = simMs.toFixed(2);
       $('dP').textContent = st.P.toFixed(3);
@@ -1500,6 +1518,11 @@
   updateCamera(0, 0);
   FLOCK.debugAudio = function () { return audio; };
   FLOCK.debugStar = starView;   // 検証用（ムクドリの描画・ハヤブサ）
+  FLOCK.debugPick = function (sx, sy) { var h = starView.pickPerch(sx, sy, camera, canvas.getBoundingClientRect()); return h ? h.kind : 'sky'; };   // 検証用
+  FLOCK.debugScreen = function (x, y, z) {   // 検証用：ワールド座標 → 画面の位置（CSS px）
+    var v = new THREE.Vector3(x, y, z).project(camera), r = canvas.getBoundingClientRect();
+    return v.z > 1 ? null : [(v.x * 0.5 + 0.5) * r.width + r.left, (-v.y * 0.5 + 0.5) * r.height + r.top];
+  };
   FLOCK.debugEngine = engine;   // 検証用
   FLOCK.debugView = function (yaw, pitch, z) { userYaw = yaw; userPitch = pitch; zoom = z; };
   camDist = desiredDist();

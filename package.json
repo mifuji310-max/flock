@@ -1,6 +1,6 @@
 {
   "name": "flock",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "private": true,
   "description": "FLOCK – 自律的に泳ぐイワシの群れに触れて観察する3D群れシミュレータ",
   "scripts": {
