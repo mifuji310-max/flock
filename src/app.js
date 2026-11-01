@@ -1,11 +1,11 @@
 /* =====================================================================
- * FLOCK app v0.13（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.14（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
  * ===================================================================== */
 (function () {
   'use strict';
 
   var STEP = 1 / 30;                 // 物理更新：固定30Hz
-  var CAP = 640;
+  var CAP = 2000;                    // v0.14: 大群モードの上限に合わせる
   var MAX_OBS = 5;
   var FOV = 52;
 
@@ -15,22 +15,32 @@
     set: function (k, v) { try { localStorage.setItem('flock.' + k, JSON.stringify(v)); } catch (e) { /* noop */ } }
   };
   var settings = Object.assign({ growth: false, quality: 'auto', sound: true, debug: false,
-    seabed: false, rocks: false, range: false, scalebar: false, touchSfx: true, volume: 70 }, store.get('settings', {}));
+    seabed: false, rocks: false, range: false, scalebar: false, touchSfx: true, volume: 70,
+    startN: 0, devUnlocked: false }, store.get('settings', {}));
   if (settings.touchSound === 'none') settings.touchSfx = false;   // v0.6 の保存値からの移行
   delete settings.touchSound;
+  if (settings.quality === 'high') settings.quality = 'auto';     // v0.14 で「高」を廃止（自動に統合）
   function saveSettings() { store.set('settings', settings); }
 
-  function qualityCap() { return settings.quality === 'low' ? 250 : 500; }
-  function basePR() { var d = window.devicePixelRatio || 1; return settings.quality === 'low' ? 1 : Math.min(d, 2); }
+  /* v0.14 画質と最大数
+   *  省電力：250匹・解像度1倍
+   *  自動　：500匹から始め、余裕があれば1000匹まで段階的に上げる。重ければ解像度→最大数の順に下げる
+   *  大群　：細かい演出を減らし、2000匹まで。重ければ最大数をその時点で止める */
+  var AUTO_START = 500, AUTO_MAX = 1000;
+  function qualityCap() { return settings.quality === 'low' ? 250 : settings.quality === 'many' ? 2000 : AUTO_START; }
+  function hardCap() { return settings.quality === 'low' ? 250 : settings.quality === 'many' ? 2000 : AUTO_MAX; }
+  function liteFx() { return settings.quality === 'many'; }
+  function basePR() { var d = window.devicePixelRatio || 1; return settings.quality === 'auto' ? Math.min(d, 2) : 1; }
+  function startCount() { return settings.startN > 0 ? Math.min(settings.startN, hardCap()) : undefined; }   // 裏モードの開始匹数
 
   /* ---------------- シミュレーション ---------------- */
-  var engine = new FLOCK.FlockEngine({ capacity: CAP, growth: settings.growth, maxCount: qualityCap() });
+  var engine = new FLOCK.FlockEngine({ capacity: CAP, growth: settings.growth, maxCount: Math.max(qualityCap(), startCount() || 0), initial: startCount() });
 
   /* ---------------- Three.js ---------------- */
   var canvas = document.getElementById('scene');
   var renderer;
   try {
-    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: settings.quality !== 'low', powerPreference: 'high-performance' });
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: settings.quality === 'auto', powerPreference: 'high-performance' });
   } catch (e) {
     document.getElementById('guide').hidden = false;
     document.getElementById('guide').textContent = 'この端末ではWebGLが使えないため表示できません。別のブラウザでお試しください。';
@@ -67,7 +77,8 @@
   var sun = new THREE.DirectionalLight(0xffffff, 1.05); sun.position.set(0.3, 1, 0.35); scene.add(sun);
   var under = new THREE.DirectionalLight(0x5fc8d8, 0.35); under.position.set(-0.4, -0.3, -1); scene.add(under);
 
-  // マリンスノー（奥行きとカメラ移動の手がかり）
+  // マリンスノー（奥行きとカメラ移動の手がかり）。大群モードでは消す
+  var snow;
   (function () {
     var N = 700, a = new Float32Array(N * 3), r = Math.random;
     for (var i = 0; i < N; i++) { a[i * 3] = (r() - 0.5) * 70; a[i * 3 + 1] = (r() - 0.5) * 34; a[i * 3 + 2] = (r() - 0.5) * 60; }
@@ -77,7 +88,8 @@
     gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
     x.fillStyle = gr; x.fillRect(0, 0, 32, 32);
     var m = new THREE.PointsMaterial({ size: 0.09, map: new THREE.CanvasTexture(c), color: 0xa9dbe2, transparent: true, opacity: 0.45, depthWrite: false });
-    scene.add(new THREE.Points(g, m));
+    snow = new THREE.Points(g, m);
+    scene.add(snow);
   })();
 
   /* ---------------- 魚体（InstancedMesh＋頂点シェーダで尾びれ運動） ---------------- */
@@ -309,6 +321,7 @@
    * 尺度：イワシの体長 bodyLen 0.32 ≒ 16cm として 1ワールド単位 = 0.5m（2単位 = 1m）。 */
   var BND = engine.params.bounds, FLOOR_Y = -BND[1];
   var causticTime = { value: 0 };   // 水面からの揺らめく光（海底・岩で共有）
+  var causticOn = { value: 1 };     // v0.14: 大群モードでは 0（計算ごと省く）
   var CAUSTIC_GLSL = 'float caus(vec2 p, float t){' +
     'p *= 1.7; float a = sin(p.x * 1.3 + 1.6 * sin(p.y * 0.9 + t * 0.8));' +
     'float b = sin(p.y * 1.1 + 1.6 * sin(p.x * 0.7 - t * 0.7));' +
@@ -316,14 +329,14 @@
     'return pow(1.0 - abs(a + b + c) / 3.0, 12.0); }';
   var seabed = new THREE.Mesh(new THREE.PlaneGeometry(140, 140, 1, 1), new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, extensions: { derivatives: true },
-    uniforms: { uSand: { value: new THREE.Color(0x52706f) }, uLine: { value: new THREE.Color(0xa6dcd4) }, uTime: causticTime },
+    uniforms: { uSand: { value: new THREE.Color(0x52706f) }, uLine: { value: new THREE.Color(0xa6dcd4) }, uTime: causticTime, uCaus: causticOn },
     vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
-    fragmentShader: 'uniform vec3 uSand; uniform vec3 uLine; uniform float uTime; varying vec3 vW;' + CAUSTIC_GLSL +
+    fragmentShader: 'uniform vec3 uSand; uniform vec3 uLine; uniform float uTime; uniform float uCaus; varying vec3 vW;' + CAUSTIC_GLSL +
       'float grid(vec2 p, float s){ vec2 q = p / s; vec2 g = abs(fract(q - 0.5) - 0.5) / fwidth(q); return 1.0 - min(min(g.x, g.y), 1.0); }' +
       'void main(){ float d = distance(vW, cameraPosition); float fade = exp(-pow(d * 0.032, 2.0));' +
       'float rip = 0.5 + 0.5 * sin(vW.x * 1.3 + 2.0 * sin(vW.z * 0.4));' +
       'vec3 c = uSand * (0.82 + 0.18 * rip);' +
-      'c += vec3(0.5, 0.82, 0.76) * caus(vW.xz, uTime) * 0.16;' +
+      'if (uCaus > 0.5) c += vec3(0.5, 0.82, 0.76) * caus(vW.xz, uTime) * 0.16;' +
       'c = mix(c, uLine, max(grid(vW.xz, 2.0) * 0.32, grid(vW.xz, 10.0) * 0.7));' +   // 細線 1m、太線 5m
       'gl_FragColor = vec4(c, 0.9 * fade); }'
   }));
@@ -386,13 +399,13 @@
   }
   var rockMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 });
   rockMat.onBeforeCompile = function (sh) {   // 上を向いた面に、水面からの揺らめく光（コースティクス）
-    sh.uniforms.uTime = causticTime;
+    sh.uniforms.uTime = causticTime; sh.uniforms.uCaus = causticOn;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying float vUp;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvUp = normalize(mat3(modelMatrix) * objectNormal).y;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime;\nvarying vec3 vWPos;\nvarying float vUp;\n' + CAUSTIC_GLSL)
-      .replace('#include <fog_fragment>', 'gl_FragColor.rgb += vec3(0.5, 0.82, 0.76) * caus(vWPos.xz, uTime) * smoothstep(0.15, 0.85, vUp) * 0.3;\n#include <fog_fragment>');
+      .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uCaus;\nvarying vec3 vWPos;\nvarying float vUp;\n' + CAUSTIC_GLSL)
+      .replace('#include <fog_fragment>', 'if (uCaus > 0.5) gl_FragColor.rgb += vec3(0.5, 0.82, 0.76) * caus(vWPos.xz, uTime) * smoothstep(0.15, 0.85, vUp) * 0.3;\n#include <fog_fragment>');
   };
   var shadowTex = (function () {
     var c = document.createElement('canvas'); c.width = c.height = 64;
@@ -892,7 +905,7 @@
 
   var optGrowth = $('optGrowth'), optSound = $('optSound'), optDebug = $('optDebug');
   optGrowth.checked = settings.growth; optSound.checked = settings.sound; optDebug.checked = settings.debug;
-  optGrowth.addEventListener('change', function () { settings.growth = optGrowth.checked; saveSettings(); restart(); toast(settings.growth ? '成長モード：12匹から始まります' : '100匹で始めます'); });
+  optGrowth.addEventListener('change', function () { settings.growth = optGrowth.checked; saveSettings(); updateStartUI(); restart(); toast((settings.growth ? '成長モード：' : '') + (startCount() || defaultStart()) + '匹から始めます'); });
   optSound.addEventListener('change', function () { settings.sound = optSound.checked; saveSettings(); setSound(settings.sound); });
   var optTouchSfx = $('optTouchSfx');
   optTouchSfx.checked = settings.touchSfx;
@@ -908,13 +921,53 @@
   $('debug').hidden = !settings.debug;
 
   var qBtns = Array.from(document.querySelectorAll('#optQuality button'));
+  function applyFx() {   // 大群モード：細かい演出を減らす（マリンスノー・海底と岩の光の揺らめき・驚いたときの光り）
+    var lite = liteFx();
+    snow.visible = !lite;
+    causticOn.value = lite ? 0 : 1;
+  }
   function applyQuality() {
     qBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.q === settings.quality)); });
     pixelRatio = basePR(); renderer.setPixelRatio(pixelRatio); resize();
-    engine.maxCount = qualityCap();
+    engine.maxCount = Math.max(qualityCap(), engine.n);   // いる魚は消さない
+    capHeld = false;
+    applyFx();
+    updateStartUI();
   }
   qBtns.forEach(function (b) { b.addEventListener('click', function () { settings.quality = b.dataset.q; saveSettings(); applyQuality(); }); });
   qBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.q === settings.quality)); });
+  applyFx();
+
+  /* ---------------- 裏モード（v0.14）：版数の行を5回タップで表示。開発者表示・開始匹数・更新履歴 ---------------- */
+  var devSec = $('devSec'), verTaps = [];
+  function showDev(on) { settings.devUnlocked = on; saveSettings(); devSec.hidden = !on; }
+  devSec.hidden = !settings.devUnlocked;
+  $('ver').addEventListener('click', function () {
+    var t = performance.now();
+    verTaps = verTaps.filter(function (x) { return t - x < 2500; }); verTaps.push(t);
+    if (verTaps.length >= 5 && !settings.devUnlocked) { verTaps = []; showDev(true); toast('裏モードを表示しました'); }
+  });
+  $('btnDevHide').addEventListener('click', function () {
+    showDev(false);
+    if (settings.debug) { optDebug.checked = false; optDebug.dispatchEvent(new Event('change')); }
+  });
+  var optStartN = $('optStartN'), startNOut = $('startNOut');
+  function defaultStart() { return settings.growth ? 12 : 100; }
+  function updateStartUI() {
+    optStartN.max = hardCap();
+    var v = settings.startN > 0 ? Math.min(settings.startN, hardCap()) : defaultStart();
+    optStartN.value = v; startNOut.textContent = v;
+  }
+  optStartN.addEventListener('input', function () { startNOut.textContent = optStartN.value; });
+  $('btnStartN').addEventListener('click', function () {
+    settings.startN = +optStartN.value; saveSettings(); restart(); openSheet(false);
+    toast(settings.startN + '匹で始めます');
+  });
+  $('btnStartDef').addEventListener('click', function () {
+    settings.startN = 0; saveSettings(); updateStartUI(); restart(); openSheet(false);
+    toast('開始匹数を既定（' + defaultStart() + '匹）に戻しました');
+  });
+  updateStartUI();
 
   $('btnResetView').addEventListener('click', function () { zoom = 1; userYaw = 0; userPitch = 0.24; camTarget.fromArray(engine.centroid); openSheet(false); });
   $('btnGuide').addEventListener('click', function () { openSheet(false); showGuide(); });
@@ -923,8 +976,10 @@
   function restart(seed) {
     releaseAll();
     engine.growthEnabled = settings.growth;
-    engine.maxCount = qualityCap();
-    engine.reset(seed != null ? seed : (Math.random() * 0x7fffffff) >>> 0);
+    var sN = startCount();
+    engine.maxCount = Math.max(qualityCap(), sN || 0);
+    capHeld = false;
+    engine.reset(seed != null ? seed : (Math.random() * 0x7fffffff) >>> 0, sN);
     selectedId = null; renderedN = 0;
     camTarget.fromArray(engine.centroid); spreadSm = engine.spread;
     touch.s = 0; touch.init = false;
@@ -1181,7 +1236,7 @@
   function updateFish(alpha, dt) {
     var n = engine.n, m = fish.instanceMatrix.array, P = engine.params;
     var px = engine.px, py = engine.py, pz = engine.pz, ppx = engine.ppx, ppy = engine.ppy, ppz = engine.ppz;
-    var vx = engine.vx, vy = engine.vy, vz = engine.vz, ph = phaseAttr.array, am = ampAttr.array, fl = flashAttr.array;
+    var vx = engine.vx, vy = engine.vy, vz = engine.vz, ph = phaseAttr.array, am = ampAttr.array, fl = flashAttr.array, lite = liteFx();   // 大群：驚いたときの光りを省く
     var kH = 1 - Math.exp(-dt * 12), kR = 1 - Math.exp(-dt * 5), invDt = dt > 1e-4 ? 1 / dt : 0;
     for (var i = 0; i < n; i++) {
       var sp = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]) || 1;
@@ -1213,7 +1268,7 @@
       m[o + 15] = 1;
       ph[i] = engine.phase[i];
       am[i] = 0.75 + Math.min(0.9, engine.stress[i] * 0.9 + (sp - P.cruise) * 0.08);
-      fl[i] = Math.min(0.3, Math.max(0, engine.stress[i] - 0.15) * 0.45 + Math.abs(roll[i]) * 0.12 + engine.feed[i] * 0.08);
+      fl[i] = lite ? 0 : Math.min(0.3,Math.max(0, engine.stress[i] - 0.15) * 0.45 + Math.abs(roll[i]) * 0.12 + engine.feed[i] * 0.08);
     }
     renderedN = n;
     fish.count = n;
@@ -1223,7 +1278,7 @@
 
   /* ---------------- 指標表示・自動画質 ---------------- */
   var countEl = $('count'), arrivingEl = $('arriving');
-  var fpsFrames = 0, fpsT = 0, fps = 60, simMs = 0, metricT = 0, qualityT = 0, shownCount = -1;
+  var fpsFrames = 0, fpsT = 0, fps = 60, simMs = 0, metricT = 0, qualityT = 0, shownCount = -1, capHeld = false;
   var sbW = -1, sbBar = $('scalebarBar'), sbLabel = $('scalebarLabel'), SB_STEPS = [0.5, 1, 2, 5, 10, 20];
   function updateHud(dt) {
     if (engine.joined !== shownCount) { shownCount = engine.joined; countEl.textContent = shownCount; }
@@ -1255,11 +1310,15 @@
       $('dPR').textContent = pixelRatio.toFixed(2);
       $('dSeed').textContent = engine.seed;
     }
-    // 自動：重いときは先に解像度、次に最大個体数（既存個体は消さない）
-    if (settings.quality === 'auto' && qualityT >= 3) {
+    // 自動・大群：重いときは先に解像度、次に最大個体数をその時点で止める（既存個体は消さない）
+    // 自動のみ：余裕があり上限に届いたら、最大数を250匹ずつ1000匹まで上げる（一度止めたら上げない）
+    if (settings.quality !== 'low' && qualityT >= 3 && !paused) {
       qualityT = 0;
       if (fps < 42 && pixelRatio > 1) { pixelRatio = Math.max(1, pixelRatio - 0.5); renderer.setPixelRatio(pixelRatio); renderer.setSize(W, H, false); }
-      else if ((fps < 30 || simMs > 12) && engine.maxCount > engine.n) { engine.maxCount = Math.max(150, engine.n); }
+      else if ((fps < 30 || simMs > 12) && engine.maxCount > engine.n) { engine.maxCount = Math.max(150, engine.n); capHeld = true; }
+      else if (settings.quality === 'auto' && !capHeld && fps >= 50 && simMs < 5 && engine.n >= engine.maxCount - 5 && engine.maxCount < AUTO_MAX) {
+        engine.maxCount = Math.min(AUTO_MAX, engine.maxCount + 250);
+      }
     }
   }
 

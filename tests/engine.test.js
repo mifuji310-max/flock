@@ -131,6 +131,23 @@ for (const kind of ['buoy', 'pillar']) {
   check('海底 海底近くの餌も食べ切る', e.eaten === 28, `食べた=${e.eaten}`);
 }
 
+// 大群（v0.14）：成長は500匹より先も続き、2000匹でも破綻しない
+{
+  const e = new FlockEngine({ seed: 9, growth: true, capacity: 2000, maxCount: 1000, initial: 500 });
+  e.growth.t = 270; e.growth.nextAt = 270;   // 500匹に達した時点から再開
+  run(e, 170);
+  check('大群 成長が500匹より先へ続き、上限1000で止まる', e.n >= 950 && e.n <= 1000, `n=${e.n}`);
+}
+{
+  const e = new FlockEngine({ seed: 11, growth: false, capacity: 2000, maxCount: 2000, initial: 2000 });
+  run(e, 3);
+  let t0 = Date.now(); run(e, 10); const msPerStep = (Date.now() - t0) / 300;
+  let bad = 0; for (let i = 0; i < e.n; i++) if (!isFinite(e.px[i] + e.py[i] + e.pz[i])) bad++;
+  check('大群 2000匹で始められる', e.n === 2000, `n=${e.n}`);
+  check('大群 2000匹でNaNなし', bad === 0);
+  check('大群 2000匹で1更新 12ms未満（PC基準）', msPerStep < 12, `${msPerStep.toFixed(2)} ms/更新`);
+}
+
 // T13 乱数シード固定で再現できる
 {
   const a = new FlockEngine({ seed: 1234, growth: false }), b = new FlockEngine({ seed: 1234, growth: false });

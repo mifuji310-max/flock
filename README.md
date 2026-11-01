@@ -24,10 +24,10 @@
 npm install                      # テスト用（three@0.128.0）
 npm test                         # 群れエンジンの自動テスト
 python3 tests/browser/smoke.py   # 画面の動作確認（Playwright が必要）
-python3 tools/build.py 0.13      # src/ から index.html と releases/flock_v0.13.html を作る
+python3 tools/build.py 0.15      # src/ から index.html と releases/flock_v0.15.html を作る
 ```
 
-- 仕様：[docs/FLOCK_設計書_v0.3.md](docs/FLOCK_設計書_v0.3.md)
+- 仕様：[docs/FLOCK_設計書_v0.4.md](docs/FLOCK_設計書_v0.4.md)
 - 引き継ぎ：[docs/FLOCK_引き継ぎ書_v1.0.md](docs/FLOCK_引き継ぎ書_v1.0.md)
 - 変更履歴：[CHANGELOG.md](CHANGELOG.md)
 

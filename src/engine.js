@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK simulation engine  v0.6
+ * FLOCK simulation engine  v0.7
+ *   v0.7 2026-11-01 成長の計画を2000匹まで延長（上限は maxCount で決まる）
  *   v0.6 2026-11-01 海底より下に餌をまかない・魚が海底より下へ潜らない
  *   v0.5 2026-10-31 餌やり：沈む餌粒、餌への誘引・興奮（feed）の近傍伝播・捕食
  *   v0.4 2026-10-31 障害物の種類：浮き玉（球＋係留ロープ）と岩の柱（鉛直カプセル）。海底基準で配置
@@ -18,7 +19,7 @@
 (function (root) {
   'use strict';
 
-  var ENGINE_VERSION = '0.6';
+  var ENGINE_VERSION = '0.7';
 
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -256,7 +257,8 @@
   };
 
   /* ---------------- 成長（小集団の合流） ---------------- */
-  var GROWTH_PLAN = [[0, 12], [30, 30], [90, 90], [180, 220], [270, 500]];
+  // v0.7: 500匹より先も合流を続ける（実際の上限は maxCount＝画質の設定で決まる）
+  var GROWTH_PLAN = [[0, 12], [30, 30], [90, 90], [180, 220], [270, 500], [420, 1000], [600, 2000]];
   function growthTarget(t) {
     for (var i = 1; i < GROWTH_PLAN.length; i++) {
       var a = GROWTH_PLAN[i - 1], b = GROWTH_PLAN[i];
