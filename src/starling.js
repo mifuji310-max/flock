@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK starling view v0.17（設計書 v0.6 §16）
+ * FLOCK starling view v0.18（設計書 v0.6 §16）
+ *   v0.18: 夕方の空・雲・かすみ・地面を明るく
  *   v0.17: 止まり木（電線と木の席・タップの判定・止まった鳥は翼をたたむ）
  *   v0.16: 観る人を近づけたので街灯を奥へ — ムクドリモードの描画（Three.js r128）
  *   夕暮れの空・駅前の街のシルエット・羽ばたく鳥・ハヤブサ
@@ -12,7 +13,7 @@
   function makeRng(seed) { var a = seed >>> 0; return function () { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; }
 
   // 空と遠くの街にかかる、夕方のかすみ（距離で空の色に溶かす）
-  var HAZE_GLSL = 'vec3 haze(vec3 c, float d){ float f = 1.0 - exp(-d * 0.0011); return mix(c, vec3(0.62, 0.44, 0.48), f * 0.75); }';
+  var HAZE_GLSL = 'vec3 haze(vec3 c, float d){ float f = 1.0 - exp(-d * 0.0011); return mix(c, vec3(0.80, 0.62, 0.64), f * 0.75); }';   // v0.18: 明るい夕方に合わせた
 
   FLOCK.createStarlingView = function (opts) {
     var THREE = opts.THREE, cap = opts.cap, engine = opts.engine;
@@ -33,8 +34,9 @@
         'void main(){ vec3 d = normalize(vDir); float h = d.y;' +
         '  vec2 az = normalize(d.xz + 1e-5), sz = normalize(uSun.xz);' +
         '  float sunA = max(dot(az, sz), 0.0), sunS = pow(sunA, 3.0);' +
-        '  vec3 zen = vec3(0.10, 0.14, 0.32), upper = vec3(0.33, 0.33, 0.56);' +
-        '  vec3 hor = mix(vec3(0.80, 0.52, 0.58), vec3(1.0, 0.60, 0.30), sunS);' +   // 太陽の側は橙、反対側は桃色
+        // v0.18: 日没直後の明るい空に（v0.15〜0.17 は暗すぎた）
+        '  vec3 zen = vec3(0.22, 0.33, 0.60), upper = vec3(0.53, 0.55, 0.80);' +
+        '  vec3 hor = mix(vec3(0.98, 0.73, 0.70), vec3(1.0, 0.75, 0.46), sunS);' +   // 太陽の側は橙、反対側は桃色
         '  float t = pow(clamp(h, 0.0, 1.0), 0.5);' +
         '  vec3 c = mix(hor, upper, smoothstep(0.0, 0.55, t));' +
         '  c = mix(c, zen, smoothstep(0.45, 1.0, t));' +
@@ -47,7 +49,7 @@
         '    float n = n2(q) * 0.55 + n2(q * vec2(2.3, 2.1) + 7.0) * 0.3 + n2(q * vec2(5.1, 3.7) + 3.0) * 0.15;' +
         '    float band = smoothstep(0.015, 0.06, h) * (1.0 - smoothstep(0.22, 0.42, h));' +
         '    float k = smoothstep(0.55, 0.78, n) * band * 0.6;' +
-        '    vec3 cc = mix(vec3(0.50, 0.38, 0.50), vec3(1.0, 0.68, 0.52), sunS * 0.9 + 0.1);' +
+        '    vec3 cc = mix(vec3(0.74, 0.60, 0.70), vec3(1.0, 0.80, 0.64), sunS * 0.9 + 0.1);' +
         '    c = mix(c, cc, k); }' +
         '  gl_FragColor = vec4(c, 1.0); }'
     }));
@@ -58,7 +60,7 @@
     var ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.ShaderMaterial({
       fog: false,
       vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
-      fragmentShader: HAZE_GLSL + 'varying vec3 vW; void main(){ float d = distance(vW, cameraPosition); gl_FragColor = vec4(haze(vec3(0.045, 0.04, 0.06), d), 1.0); }'
+      fragmentShader: HAZE_GLSL + 'varying vec3 vW; void main(){ float d = distance(vW, cameraPosition); gl_FragColor = vec4(haze(vec3(0.11, 0.10, 0.13), d), 1.0); }'
     }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = GY;
     group.add(ground);

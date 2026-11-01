@@ -8,10 +8,11 @@
 <title>FLOCK</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!--
-  FLOCK 群れシミュレータ  プロトタイプ v0.17「TOUCH & AVOID」
+  FLOCK 群れシミュレータ  プロトタイプ v0.18「TOUCH & AVOID」
   準拠：FLOCK 群れシミュレータ 開発設計書 v0.6（2026-11-01）
 
   更新履歴
+  v0.18 2026-11-01  ムクドリモードの夕方の空を明るくした（暗すぎたため）。空・雲・遠くのかすみ・地面を明るくし、画面周辺の減光を弱めた
   v0.17 2026-11-01  ムクドリモードに止まり木を追加（設計書 v0.6 §16.14）。
                     ・電線や木をタップすると、群れの一部がそこへ降りて止まる（空をタップすると今までどおりハヤブサ）
                     ・電線：タップした区間の3本に0.35m間隔でずらりと並ぶ。木：樹冠の中と上の枝先に入る。あふれた鳥は空を飛び続ける
@@ -143,6 +144,7 @@ body {
 }
 #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 .vignette { position: fixed; inset: 0; z-index: 1; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 48%, var(--vignette) 100%); }
+body.sky .vignette { opacity: 0.35; }   /* v0.18 ムクドリ：明るい夕方の空を暗くしすぎない */
 .paused-chip {
   position: fixed; z-index: 5; left: 50%; transform: translateX(-50%);
   top: calc(env(safe-area-inset-top, 0px) + 104px); pointer-events: none;
@@ -565,6 +567,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     <details class="hist">
       <summary>更新履歴</summary>
       <p class="ver">
+      v0.18（2026-11-01）ムクドリ：夕方の空を明るく<br>
       v0.17（2026-11-01）ムクドリ：止まり木（電線や木をタップするとそこに止まる）<br>
       v0.16（2026-11-01）ムクドリ：群れを近くに映す、2本指で動きすぎないように<br>
       v0.15（2026-11-01）ムクドリモード（夕暮れの駅前から見上げる・ハヤブサ）<br>
@@ -586,7 +589,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </details>
     <div class="btn-row"><button class="chip" id="btnDevHide">裏モードを閉じる</button></div>
   </section>
-  <p class="ver" id="ver"><b>FLOCK v0.17</b> TOUCH &amp; AVOID<br>
+  <p class="ver" id="ver"><b>FLOCK v0.18</b> TOUCH &amp; AVOID<br>
   個体は人工モデルで、実際の魚や鳥の生態を厳密に再現したものではありません。</p>
 </section>
 
@@ -1510,7 +1513,8 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 </script>
 <script>
 /* =====================================================================
- * FLOCK starling view v0.17（設計書 v0.6 §16）
+ * FLOCK starling view v0.18（設計書 v0.6 §16）
+ *   v0.18: 夕方の空・雲・かすみ・地面を明るく
  *   v0.17: 止まり木（電線と木の席・タップの判定・止まった鳥は翼をたたむ）
  *   v0.16: 観る人を近づけたので街灯を奥へ — ムクドリモードの描画（Three.js r128）
  *   夕暮れの空・駅前の街のシルエット・羽ばたく鳥・ハヤブサ
@@ -1523,7 +1527,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   function makeRng(seed) { var a = seed >>> 0; return function () { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; }
 
   // 空と遠くの街にかかる、夕方のかすみ（距離で空の色に溶かす）
-  var HAZE_GLSL = 'vec3 haze(vec3 c, float d){ float f = 1.0 - exp(-d * 0.0011); return mix(c, vec3(0.62, 0.44, 0.48), f * 0.75); }';
+  var HAZE_GLSL = 'vec3 haze(vec3 c, float d){ float f = 1.0 - exp(-d * 0.0011); return mix(c, vec3(0.80, 0.62, 0.64), f * 0.75); }';   // v0.18: 明るい夕方に合わせた
 
   FLOCK.createStarlingView = function (opts) {
     var THREE = opts.THREE, cap = opts.cap, engine = opts.engine;
@@ -1544,8 +1548,9 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
         'void main(){ vec3 d = normalize(vDir); float h = d.y;' +
         '  vec2 az = normalize(d.xz + 1e-5), sz = normalize(uSun.xz);' +
         '  float sunA = max(dot(az, sz), 0.0), sunS = pow(sunA, 3.0);' +
-        '  vec3 zen = vec3(0.10, 0.14, 0.32), upper = vec3(0.33, 0.33, 0.56);' +
-        '  vec3 hor = mix(vec3(0.80, 0.52, 0.58), vec3(1.0, 0.60, 0.30), sunS);' +   // 太陽の側は橙、反対側は桃色
+        // v0.18: 日没直後の明るい空に（v0.15〜0.17 は暗すぎた）
+        '  vec3 zen = vec3(0.22, 0.33, 0.60), upper = vec3(0.53, 0.55, 0.80);' +
+        '  vec3 hor = mix(vec3(0.98, 0.73, 0.70), vec3(1.0, 0.75, 0.46), sunS);' +   // 太陽の側は橙、反対側は桃色
         '  float t = pow(clamp(h, 0.0, 1.0), 0.5);' +
         '  vec3 c = mix(hor, upper, smoothstep(0.0, 0.55, t));' +
         '  c = mix(c, zen, smoothstep(0.45, 1.0, t));' +
@@ -1558,7 +1563,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
         '    float n = n2(q) * 0.55 + n2(q * vec2(2.3, 2.1) + 7.0) * 0.3 + n2(q * vec2(5.1, 3.7) + 3.0) * 0.15;' +
         '    float band = smoothstep(0.015, 0.06, h) * (1.0 - smoothstep(0.22, 0.42, h));' +
         '    float k = smoothstep(0.55, 0.78, n) * band * 0.6;' +
-        '    vec3 cc = mix(vec3(0.50, 0.38, 0.50), vec3(1.0, 0.68, 0.52), sunS * 0.9 + 0.1);' +
+        '    vec3 cc = mix(vec3(0.74, 0.60, 0.70), vec3(1.0, 0.80, 0.64), sunS * 0.9 + 0.1);' +
         '    c = mix(c, cc, k); }' +
         '  gl_FragColor = vec4(c, 1.0); }'
     }));
@@ -1569,7 +1574,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     var ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.ShaderMaterial({
       fog: false,
       vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
-      fragmentShader: HAZE_GLSL + 'varying vec3 vW; void main(){ float d = distance(vW, cameraPosition); gl_FragColor = vec4(haze(vec3(0.045, 0.04, 0.06), d), 1.0); }'
+      fragmentShader: HAZE_GLSL + 'varying vec3 vW; void main(){ float d = distance(vW, cameraPosition); gl_FragColor = vec4(haze(vec3(0.11, 0.10, 0.13), d), 1.0); }'
     }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = GY;
     group.add(ground);
@@ -1990,7 +1995,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 </script>
 <script>
 /* =====================================================================
- * FLOCK app v0.17（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.18（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
  *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作
  * ===================================================================== */
 (function () {
@@ -2456,7 +2461,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   /* ---------------- ムクドリモード（v0.15）：空・駅前の街・鳥・ハヤブサ（starling.js） ---------------- */
   var starView = FLOCK.createStarlingView({ THREE: THREE, cap: CAP, engine: engine });
   scene.add(starView.group);
-  var seaFog = scene.fog, skyFog = new THREE.FogExp2(0x9e707a, 0.0012);
+  var seaFog = scene.fog, skyFog = new THREE.FogExp2(0xcc9ea4, 0.0012);
 
   function applyLandmarks() {
     var st = isStar();   // ムクドリでは海底と岩を使わない
@@ -3105,6 +3110,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   function applySpecies() {
     var st = isStar();
     spBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.s === settings.species)); });
+    document.body.classList.toggle('sky', st);   // v0.18 ムクドリでは画面の周辺を暗くしすぎない
     sky.visible = fish.visible = foodPts.visible = !st;
     starView.setVisible(st);
     scene.fog = st ? skyFog : seaFog;

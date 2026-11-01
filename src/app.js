@@ -1,5 +1,5 @@
 /* =====================================================================
- * FLOCK app v0.17（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.18（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
  *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作
  * ===================================================================== */
 (function () {
@@ -465,7 +465,7 @@
   /* ---------------- ムクドリモード（v0.15）：空・駅前の街・鳥・ハヤブサ（starling.js） ---------------- */
   var starView = FLOCK.createStarlingView({ THREE: THREE, cap: CAP, engine: engine });
   scene.add(starView.group);
-  var seaFog = scene.fog, skyFog = new THREE.FogExp2(0x9e707a, 0.0012);
+  var seaFog = scene.fog, skyFog = new THREE.FogExp2(0xcc9ea4, 0.0012);
 
   function applyLandmarks() {
     var st = isStar();   // ムクドリでは海底と岩を使わない
@@ -1114,6 +1114,7 @@
   function applySpecies() {
     var st = isStar();
     spBtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.s === settings.species)); });
+    document.body.classList.toggle('sky', st);   // v0.18 ムクドリでは画面の周辺を暗くしすぎない
     sky.visible = fish.visible = foodPts.visible = !st;
     starView.setVisible(st);
     scene.fog = st ? skyFog : seaFog;
