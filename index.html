@@ -8,10 +8,11 @@
 <title>FLOCK</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!--
-  FLOCK 群れシミュレータ  プロトタイプ v0.19「TOUCH & AVOID」
-  準拠：FLOCK 群れシミュレータ 開発設計書 v0.7（2026-11-01）
+  FLOCK 群れシミュレータ  プロトタイプ v0.20「TOUCH & AVOID」
+  準拠：FLOCK 群れシミュレータ 開発設計書 v0.8（2026-11-02）
 
   更新履歴
+  v0.20 2026-11-02  ムクドリの時間の流れ（設計書 v0.8 §16.7。成長モードのときだけ）。日没から夜へ空が暮れ、窓と街灯が点き、6分でねぐら入り（街路樹へ渦を巻いて降りて見えなくなる）、7分半で夕方からやり直す。夜は星が出る。
   v0.19 2026-11-01  止まり木の降り方を先行研究に合わせて改めた（設計書 v0.7 §16.14）。全員が目的地を知っているように整列していく不自然さを解消。
                     ・タップすると、群れはまず止まり木の上空を回る
                     ・数羽が降り始めると「降りる」が近くの仲間へ伝わり、一気に降りる（Bhattacharya & Vicsek 2010）。止まり木の空きが少ないほど決めにくい
@@ -507,7 +508,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </div>
   </div>
   <div class="row">
-    <div class="lbl">仲間の合流（成長）<small>12匹（羽）から始まり、画面外の小さな群れが合流して、画質に合わせた最大数（自動は500〜1000）まで増えます。切り替えると群れを最初からやり直します。</small></div>
+    <div class="lbl">仲間の合流（成長）<small>12匹（羽）から始まり、画面外の小さな群れが合流して、画質に合わせた最大数（自動は500〜1000）まで増えます。切り替えると群れを最初からやり直します。ムクドリでは、日が暮れて約6分でねぐらの木へ降り、7分半で夕方からやり直します。</small></div>
     <label class="switch"><input type="checkbox" id="optGrowth" aria-label="仲間の合流"><span></span></label>
   </div>
   <div class="row">
@@ -572,6 +573,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     <details class="hist">
       <summary>更新履歴</summary>
       <p class="ver">
+      v0.20（2026-11-02）ムクドリ：時間の流れ（日没・街の灯り・ねぐら入り・夕方からやり直し。成長モードのとき）<br>
       v0.19（2026-11-01）ムクドリ：止まり木の降り方を自然に（上空を回り、決断が広がり、空きに止まる）<br>
       v0.18（2026-11-01）ムクドリ：夕方の空を明るく<br>
       v0.17（2026-11-01）ムクドリ：止まり木（電線や木をタップするとそこに止まる）<br>
@@ -595,14 +597,15 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </details>
     <div class="btn-row"><button class="chip" id="btnDevHide">裏モードを閉じる</button></div>
   </section>
-  <p class="ver" id="ver"><b>FLOCK v0.19</b> TOUCH &amp; AVOID<br>
+  <p class="ver" id="ver"><b>FLOCK v0.20</b> TOUCH &amp; AVOID<br>
   個体は人工モデルで、実際の魚や鳥の生態を厳密に再現したものではありません。</p>
 </section>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 /* =====================================================================
- * FLOCK simulation engine  v0.10
+ * FLOCK simulation engine  v0.11
+ *   v0.11 2026-11-02 ねぐら入り：街路樹の上空を回り、降りる決断が広がって、渦を巻きながら木の中へ入る（見えなくなる）
  *   v0.10 2026-11-01 止まり木の降り方を改訂：上空を回る → 降りる決断が仲間へ広がる → 着いた所の空きに止まる（席を先に決めない）
  *   v0.9 2026-11-01 止まり木（ムクドリ）：席を割り当てて降りる・止まる・ハヤブサで一斉に飛び立つ
  *   v0.8 2026-11-01 ムクドリ（species: 'starling'）：近い順の7羽で整列・結合、ハヤブサから逃げる、平たい群れ、最低高度
@@ -625,7 +628,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 (function (root) {
   'use strict';
 
-  var ENGINE_VERSION = '0.10';
+  var ENGINE_VERSION = '0.11';
 
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -707,6 +710,8 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     landDelay: 4, landBase: 0.004, landNear: 0.05, landQuorum: 0.5,  // 決め始めるまでの秒、ふだんの決めやすさ（1/秒）、真上にいるとき、仲間の影響
     claimR: 2.5, gapMin: 0.24, gapMax: 0.50, slotSearch: 5,            // 空きを探し始める距離、好む間隔の範囲、左右に探す幅（m）
     siteLife: 45, siteFails: 300,
+    // v0.11 ねぐら入り（設計書 §16.7）：街路樹の上空を回り、降りる決断が広がって、渦を巻きながら木の中へ入る
+    roostR: 28, roostDelay: 6, roostBase: 0.004, roostRamp: 0.0005, roostQuorum: 0.8, roostEnd: 68, roostIn: 1.2, swirl: 0.9,
     growMax: 80,
     bounds: [60, 20, 60]
   });
@@ -775,7 +780,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     this._keys = new Int32Array(27);
     this._knD = new Float32Array(16); this._knJ = new Int32Array(16);   // 近い順の近傍（ムクドリ）
     this.predator = null;                // ハヤブサ { x, y, z, vx, vy, vz, R }（入力層が設定。いないときは null）
-    // v0.9 止まり木：鳥ごとの状態 0=飛ぶ 1=席へ降りる 2=止まっている 3=飛び立ち待ち。席は perches の番号
+    // v0.9 止まり木：鳥ごとの状態 0=飛ぶ 1=席へ降りる 2=止まっている 3=飛び立ち待ち 4=ねぐらの木の中（見えない。v0.11）。席は perches の番号
     this.pst = new Uint8Array(C); this.pseat = new Int32Array(C); this.ptk = new Float32Array(C);
     this.rj = new Float32Array(C);       // 飛び立ってから群れへ戻るまでの残り時間（この間は目印の鳥を追う）
     this.anchor = new Int32Array(C).fill(-1);
@@ -784,7 +789,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     this.dtx = new Float32Array(C); this.dty = new Float32Array(C); this.dtz = new Float32Array(C);
     this.gap = new Float32Array(C); this.cool = new Float32Array(C);
     this.site = null; this._siteSeq = 0;
-    this.perches = []; this.perchedN = 0;
+    this.perches = []; this.perchedN = 0; this.roostedN = 0;
     this.obstacles = [];
     this.landmarks = [];               // 固定の目印（岩など）。ユーザーは編集できない
     this.repulsors = [];                 // 入力層が毎ステップ設定
@@ -814,7 +819,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     this.joined = this.n;
     this.obstacles.length = 0;
     this.foodN = 0; this.eaten = 0; this.feed.fill(0);
-    this.pst.fill(0); this.rj.fill(0); this.cool.fill(0); this.perches = []; this.perchedN = 0; this.site = null;
+    this.pst.fill(0); this.rj.fill(0); this.cool.fill(0); this.perches = []; this.perchedN = 0; this.roostedN = 0; this.site = null;
     this.analyze();
   };
 
@@ -850,6 +855,24 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     this.site = site;
     for (i = 0; i < this.n; i++) this.cool[i] = 0;
   };
+  /* ---------------- ねぐら入り（v0.11 / 設計書 §16.7） ----------------
+   * trees: [{ x, y, z, r }]（描画側の街路樹）。止まり木と同じく「上空を回る → 決断が広がる → 降りる」。
+   * 席は作らない。渦を巻くように降りて樹冠の中まで来た鳥は、見えなくなる（pst = 4）。 */
+  FlockEngine.prototype.roostSite = function (trees) {
+    var P = this.params, cx = 0, cy = 0, cz = 0;
+    trees.forEach(function (t) { cx += t.x; cy += t.y; cz += t.z; });
+    cx /= trees.length; cy /= trees.length; cz /= trees.length;
+    var site = { kind: 'roost', trees: trees, cx: cx, cy: cy, cz: cz, ox: cx, oy: cy + P.siteUp, oz: cz, t: 0, fails: 0, active: true, free: 1, cap: 1e9, id: 'roost', dir: this.rng() < 0.5 ? 1 : -1 };
+    // 降りる途中の鳥は空へ戻し、電線や木に止まっている鳥は少しずつ飛び立たせる（そのあと、ねぐらへ向かう）
+    for (var i = 0; i < this.n; i++) {
+      if (this.pst[i] === 1) { if (this.pseat[i] >= 0) this.perches[this.pseat[i]].bird = -1; this.pseat[i] = -1; this.pst[i] = 0; this.rj[i] = 4; this.anchor[i] = -1; }
+      else if (this.pst[i] === 2) { this.pst[i] = 3; this.ptk[i] = 0.5 + this.rng() * 4; }
+      this.cool[i] = 0;
+    }
+    this.site = site;
+    return site;
+  };
+  FlockEngine.prototype.roosting = function () { return !!(this.site && this.site.kind === 'roost'); };
   // 電線 w の上で点 (x, y, z) に一番近い点の、電線に沿った距離 s と、その点
   FlockEngine.prototype._wireNearest = function (site, x, y, z, out) {
     var best = 1e18;
@@ -893,6 +916,15 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
         if (cost < bestC) { bestC = cost; bestW = w; bestS = sc; }
       }
       this.dw[i] = bestW; this.ds[i] = bestS;
+    }
+    if (site.kind === 'roost') {   // v0.11 近くの木（4本から一番近いもの）の樹冠の中を目指す
+      var bt = site.trees[0], bd = 1e18;
+      for (var c2 = 0; c2 < 4; c2++) {
+        var T = site.trees[Math.floor(r() * site.trees.length)], ex = T.x - this.px[i], ez = T.z - this.pz[i], e2 = ex * ex + ez * ez;
+        if (e2 < bd) { bd = e2; bt = T; }
+      }
+      var a2 = r() * Math.PI * 2, rr2 = bt.r * (0.15 + r() * 0.4);
+      this.dtx[i] = bt.x + Math.cos(a2) * rr2; this.dty[i] = bt.y + (r() - 0.5) * bt.r * 0.5; this.dtz[i] = bt.z + Math.sin(a2) * rr2;
     }
     if (site.kind === 'tree') {   // 樹冠の中のどこかを目指す
       var a = r() * Math.PI * 2, el = (r() - 0.3) * 1.6, rr = site.r * (0.3 + r() * 0.6);
@@ -939,9 +971,14 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   };
   // 止まっている鳥（と降りている途中の鳥）を飛び立たせる。点 (x, y, z) に近い鳥から 0〜0.5 秒の遅れで、波のように
   FlockEngine.prototype.scarePerched = function (x, y, z) {
-    this.site = null;   // v0.10 降りる呼びかけも終わり
+    var roost = this.roosting();   // v0.11 ねぐら入りの間は呼びかけを続ける。驚いた鳥は舞い上がり、しばらくしてまた降りる
+    if (!roost) this.site = null;   // v0.10 降りる呼びかけも終わり
     for (var i = 0; i < this.n; i++) {
-      if (this.pst[i] === 1) { if (this.pseat[i] >= 0) this.perches[this.pseat[i]].bird = -1; this.pseat[i] = -1; this.pst[i] = 0; this.stress[i] = 0.6; this.rj[i] = 15; this.anchor[i] = -1; }
+      if (this.pst[i] === 1) {
+        if (roost && Math.hypot(this.px[i] - x, this.py[i] - y, this.pz[i] - z) > 40) continue;
+        if (this.pseat[i] >= 0) this.perches[this.pseat[i]].bird = -1; this.pseat[i] = -1; this.pst[i] = 0; this.stress[i] = 0.6; this.rj[i] = 15; this.anchor[i] = -1;
+        if (roost) { this.cool[i] = 4 + this.rng() * 4; this.vy[i] = Math.max(this.vy[i], 5); }
+      }
       else if (this.pst[i] === 2) { this.pst[i] = 3; this.ptk[i] = Math.min(0.5, Math.hypot(this.px[i] - x, this.py[i] - y, this.pz[i] - z) / 120); }
     }
   };
@@ -1064,6 +1101,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   }
   FlockEngine.prototype._updateGrowth = function (dt) {
     var g = this.growth, r = this.rng, P = this.params;
+    if (this.roosting()) return;   // v0.11 ねぐら入りの間は合流しない
     g.t += dt;
     if (g.t < g.nextAt) return;
     var limit = Math.min(this.maxCount, this.cap);
@@ -1150,16 +1188,17 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       site.t += dt;
       // 止まり木の空き具合（止まっている鳥と降りている途中の鳥を引く）。空きが少ないほど降りると決めにくい
       var taken = 0;
-      for (var q1 = 0; q1 < n; q1++) if (this.pst[q1] === 1 || (this.pst[q1] === 2 && this.perches[this.pseat[q1]].site === site.id) || (this.pst[q1] === 2 && site.kind === 'tree' && site.seats.indexOf(this.perches[this.pseat[q1]]) >= 0)) taken++;
-      site.free = clamp((site.cap - taken) / site.cap, 0, 1);
-      if (site.t > P.siteLife || site.fails > P.siteFails) { site.active = false; siteOn = false; }
+      if (site.kind !== 'roost') for (var q1 = 0; q1 < n; q1++) if (this.pst[q1] === 1 || (this.pst[q1] === 2 && this.perches[this.pseat[q1]].site === site.id) || (this.pst[q1] === 2 && site.kind === 'tree' && site.seats.indexOf(this.perches[this.pseat[q1]]) >= 0)) taken++;
+      site.free = site.kind === 'roost' ? 1 : clamp((site.cap - taken) / site.cap, 0, 1);
+      if (site.kind !== 'roost' && (site.t > P.siteLife || site.fails > P.siteFails)) { site.active = false; siteOn = false; }
       else { floorF = Math.min(floorF, site.oy - 8); bMul = 0.15; }
     }
     var envK = P.envScale || 1, flatten = P.flatten || 0;
 
-    var pst = this.pst, rj = this.rj, perchedN = 0, scareP = false;
+    var pst = this.pst, rj = this.rj, perchedN = 0, roostedN = 0, scareP = false;
+    var siteRR = siteOn && site.kind === 'roost' ? P.roostR : P.siteR;   // 回る半径（ねぐらは並木全体を回るので大きい）
     for (var i = 0; i < n; i++) {
-      if (pst[i]) { if (this._perchStep(i, dt, pred)) scareP = true; if (pst[i] === 2) perchedN++; continue; }
+      if (pst[i]) { if (this._perchStep(i, dt, pred)) scareP = true; if (pst[i] === 2) perchedN++; else if (pst[i] === 4) roostedN++; continue; }
       var x = px[i], y = py[i], z = pz[i];
       var ux = vx[i], uy = vy[i], uz = vz[i];
       var sp = Math.sqrt(ux * ux + uy * uy + uz * uz);
@@ -1276,13 +1315,16 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       }
       // v0.10 止まり木の呼びかけ中：上空を回り、降りると決める（降り始めた仲間が近くに多いほど決めやすい）
       if (siteOn && flock[i] === 0 && !(this.rj[i] > 0)) {
-        var ox_ = site.ox - x, oz_ = site.oz - z, oh = Math.sqrt(ox_ * ox_ + oz_ * oz_) || 1, rad = clamp((oh - P.siteR) / P.siteR, -1, 1);
+        var ox_ = site.ox - x, oz_ = site.oz - z, oh = Math.sqrt(ox_ * ox_ + oz_ * oz_) || 1, rad = clamp((oh - siteRR) / siteRR, -1, 1);
         Gx += ox_ / oh * rad * 1.2 - oz_ / oh * 0.9 * site.dir; Gz += oz_ / oh * rad * 1.2 + ox_ / oh * 0.9 * site.dir;
         Gy += clamp((site.oy - y) / 8, -1, 1) * 1.0;
         if (this.cool[i] > 0) this.cool[i] -= dt;
-        else if (site.t > P.landDelay) {
-          var above = oh < P.siteR * 1.4 && Math.abs(y - site.oy) < 10, nearSite = oh < P.siteR * 2.5;
-          var rate = nearSite ? (P.landBase + (above ? P.landNear : 0) + P.landQuorum * Math.min(1, nbDesc * nbDesc / 4)) * (site.free > 0.04 ? Math.min(1, site.free * 1.5) : 0) : 0;   // 止まり木の近くに来てから決める。空きが少ないと決めにくい
+        else if (site.t > (site.kind === 'roost' ? P.roostDelay : P.landDelay)) {
+          var above = oh < siteRR * 1.4 && Math.abs(y - site.oy) < 10, nearSite = oh < siteRR * 2.5;
+          var rate = site.kind === 'roost'
+            // v0.11 ねぐら：時間とともに決めやすくなり、近くに降り始めた仲間がいると続く（細い流れになる）。最後は全員が降りる
+            ? (nearSite ? (P.roostBase + P.roostRamp * site.t + (site.t > P.roostEnd ? 0.5 : 0)) * (1 + P.roostQuorum * Math.min(4, nbDesc)) : (site.t > P.roostEnd ? 0.2 : 0))
+            : nearSite ? (P.landBase + (above ? P.landNear : 0) + P.landQuorum * Math.min(1, nbDesc * nbDesc / 4)) * (site.free > 0.04 ? Math.min(1, site.free * 1.5) : 0) : 0;   // 止まり木の近くに来てから決める。空きが少ないと決めにくい
           if (rng() < rate * dt) { this._startDescent(i); continue; }
         }
       }
@@ -1489,7 +1531,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     // 積分・後処理
     var joinedNow = 0, maxS = 0;
     for (i = 0; i < n; i++) {
-      if (pst[i]) { if (flock[i] === 0) joinedNow++; continue; }
+      if (pst[i]) { if (flock[i] === 0 && pst[i] !== 4) joinedNow++; continue; }
       var X = px[i] + nvx[i] * dt, Y = py[i] + nvy[i] * dt, Z = pz[i] + nvz[i] * dt;
       var VX = nvx[i], VY = nvy[i], VZ = nvz[i];
       // めり込み防止（最後の保険）：最短方向へ段階的に押し出す
@@ -1529,7 +1571,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     }
     this.joined = joinedNow;
     this.stats.maxStress = maxS;
-    this.perchedN = perchedN;
+    this.perchedN = perchedN; this.roostedN = roostedN;
     if (scareP && pred) this.scarePerched(pred.x, pred.y, pred.z);
     this._updateCentroid();
   };
@@ -1546,6 +1588,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     var x = this.px[i], y = this.py[i], z = this.pz[i];
     this.ppx[i] = x; this.ppy[i] = y; this.ppz[i] = z;
     this.nstress[i] = this.stress[i] = 0; this.nfeed[i] = 0;
+    if (st === 4) return false;   // v0.11 ねぐらの木の中（見えない・動かない）
     var scared = !!(pred && st !== 3 && Math.hypot(pred.x - x, pred.y - y, pred.z - z) < P.perchScareR);
     if (st === 1 && !seat) {   // v0.10 降りる途中（席はまだない）：止まり木へ向かい、近くまで来たら空きを探す
       var site = this.site;
@@ -1554,11 +1597,19 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       if (site.kind === 'wire') { var wq = this._wireAt(site, this.dw[i], this.ds[i], this._nq || (this._nq = {})); tx = wq.x; ty = wq.y + 0.09; tz = wq.z; }   // 決めたときに選んだ、空いていそうな所へ
       else { tx = this.dtx[i]; ty = this.dty[i]; tz = this.dtz[i]; }
       var ddx = tx - x, ddy = ty - y, ddz = tz - z, dd = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
-      if (dd < P.claimR) { if (!this._claim(i)) { this._abortDescent(i); return scared; } return scared; }
-      var lift0 = dd > 8 ? Math.min(dd * 0.2 * this.resp[i], 7) : 0, ty0 = ddy + lift0, tl0 = Math.sqrt(ddx * ddx + ty0 * ty0 + ddz * ddz) || 1;
+      var isRoost = site.kind === 'roost';
+      if (isRoost && dd < P.roostIn) { this.pst[i] = 4; this.vx[i] = this.vy[i] = this.vz[i] = 0; return false; }   // v0.11 木の中に入った
+      if (!isRoost && dd < P.claimR) { if (!this._claim(i)) { this._abortDescent(i); return scared; } return scared; }
+      var lift0 = dd > 8 ? Math.min(dd * (isRoost ? 0.08 : 0.2) * this.resp[i], 7) : 0, ty0 = ddy + lift0, tl0 = Math.sqrt(ddx * ddx + ty0 * ty0 + ddz * ddz) || 1;
       var vmax = P.cruise * (0.55 + 0.45 * (this.resp[i] - 0.75) * 2);   // 降りる速さは鳥ごとに違う（巡航の55〜100%）。着く時刻がばらける
       var sp0 = clamp(dd * 0.9, 3, vmax), k0 = Math.min(1, dt * 2.5);   // 近づくと減速
-      this.vx[i] += (ddx / tl0 * sp0 - this.vx[i]) * k0; this.vy[i] += (ty0 / tl0 * sp0 - this.vy[i]) * k0; this.vz[i] += (ddz / tl0 * sp0 - this.vz[i]) * k0;
+      var ux0 = ddx / tl0, uy0 = ty0 / tl0, uz0 = ddz / tl0;
+      if (isRoost) {   // v0.11 木の真上を回りながら降りる（渦）。近づくほど回る成分を弱めて、まっすぐ入る
+        var hd0 = Math.sqrt(ddx * ddx + ddz * ddz) || 1, sw = P.swirl * clamp((hd0 - 2) / 12, 0, 1) * site.dir;
+        ux0 -= ddz / hd0 * sw; uz0 += ddx / hd0 * sw;
+        var ul0 = Math.sqrt(ux0 * ux0 + uy0 * uy0 + uz0 * uz0) || 1; ux0 /= ul0; uy0 /= ul0; uz0 /= ul0;
+      }
+      this.vx[i] += (ux0 * sp0 - this.vx[i]) * k0; this.vy[i] += (uy0 * sp0 - this.vy[i]) * k0; this.vz[i] += (uz0 * sp0 - this.vz[i]) * k0;
       var ny0 = y + this.vy[i] * dt;
       if (ny0 < P.groundY + P.bodyRadius) ny0 = P.groundY + P.bodyRadius;
       this.px[i] = x + this.vx[i] * dt; this.py[i] = ny0; this.pz[i] = z + this.vz[i] * dt;
@@ -1591,7 +1642,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     var n = this.n, sx = 0, sy = 0, sz = 0, m = 0;
     var pst = this.pst;
     for (var i = 0; i < n; i++) if (this.flock[i] === 0 && !pst[i]) { sx += this.px[i]; sy += this.py[i]; sz += this.pz[i]; m++; }
-    if (m === 0) return;
+    if (m === 0) { this.mainN = 0; return; }   // v0.11 全員が木の中：中心は最後の位置のまま
     sx /= m; sy /= m; sz /= m;
     var s2 = 0;
     for (i = 0; i < n; i++) if (this.flock[i] === 0 && !pst[i]) {
@@ -1650,7 +1701,8 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 </script>
 <script>
 /* =====================================================================
- * FLOCK starling view v0.19（設計書 v0.7 §16）
+ * FLOCK starling view v0.20（設計書 v0.8 §16）
+ *   v0.20: 時間の流れ（空が暮れて夜になる・星・かすみと街の暗さ）。ねぐらの木に入った鳥は描かない
  *   v0.19: 止まり木は席を作らず、電線の形と木の中の空き場所をエンジンへ渡す
  *   v0.18: 夕方の空・雲・かすみ・地面を明るく
  *   v0.17: 止まり木（電線と木の席・タップの判定・止まった鳥は翼をたたむ）
@@ -1665,7 +1717,9 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   function makeRng(seed) { var a = seed >>> 0; return function () { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; }
 
   // 空と遠くの街にかかる、夕方のかすみ（距離で空の色に溶かす）
-  var HAZE_GLSL = 'vec3 haze(vec3 c, float d){ float f = 1.0 - exp(-d * 0.0011); return mix(c, vec3(0.80, 0.62, 0.64), f * 0.75); }';   // v0.18: 明るい夕方に合わせた
+  // v0.18: 明るい夕方に合わせた。v0.20: 色（uHaze）と暗さ（uDark：0 夕方〜1 夜）は時間の流れで変わる
+  var HAZE_GLSL = 'uniform vec3 uHaze; uniform float uDark; vec3 haze(vec3 c, float d){ float f = 1.0 - exp(-d * 0.0011); return mix(c * (1.0 - 0.55 * uDark), uHaze, f * 0.75); }';
+  var HAZE_DUSK = [0.80, 0.62, 0.64], HAZE_NIGHT = [0.075, 0.075, 0.12];
 
   FLOCK.createStarlingView = function (opts) {
     var THREE = opts.THREE, cap = opts.cap, engine = opts.engine;
@@ -1673,13 +1727,14 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     var group = new THREE.Group();
     group.visible = false;
     var SUN = new THREE.Vector3(-0.42, -0.06, -1).normalize();   // 沈んだばかりの太陽（観る人の前方やや左）
+    var hazeC = { value: new THREE.Vector3().fromArray(HAZE_DUSK) }, darkU = { value: 0 };   // v0.20 街・木・地面で共有する
 
     /* ---------------- 空 ---------------- */
-    var skyU = { uSun: { value: SUN }, uCloud: { value: 1 }, uTime: { value: 0 } };
+    var skyU = { uSun: { value: SUN }, uCloud: { value: 1 }, uTime: { value: 0 }, uDark: darkU };
     var sky = new THREE.Mesh(new THREE.SphereGeometry(2400, 48, 24), new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyU,
       vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: 'uniform vec3 uSun; uniform float uCloud; uniform float uTime; varying vec3 vDir;' +
+      fragmentShader: 'uniform vec3 uSun; uniform float uCloud; uniform float uTime; uniform float uDark; varying vec3 vDir;' +
         'float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }' +
         'float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);' +
         '  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }' +
@@ -1693,7 +1748,13 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
         '  vec3 c = mix(hor, upper, smoothstep(0.0, 0.55, t));' +
         '  c = mix(c, zen, smoothstep(0.45, 1.0, t));' +
         '  c += vec3(1.0, 0.55, 0.25) * pow(max(dot(d, uSun), 0.0), 10.0) * 0.45;' +  // 沈んだ太陽の残り火
-        '  if (h < 0.0) c = mix(hor, hor * 0.55, smoothstep(0.0, -0.08, h));' +
+        // v0.20 夜へ：天頂から先に暗くなり、西の地平線の明るさは最後まで少し残る
+        '  vec3 nh = mix(vec3(0.16, 0.12, 0.19), vec3(0.30, 0.17, 0.14), sunS);' +
+        '  vec3 nc = mix(nh, vec3(0.05, 0.06, 0.14), smoothstep(0.0, 0.5, t));' +
+        '  nc = mix(nc, vec3(0.018, 0.024, 0.07), smoothstep(0.4, 1.0, t));' +
+        '  float dk = clamp(uDark * (1.0 + 0.3 * t) - 0.1 * sunS * (1.0 - t), 0.0, 1.0);' +
+        '  c = mix(c, nc, dk);' +
+        '  if (h < 0.0) { vec3 hh = mix(hor, nh, dk); c = mix(hh, hh * 0.55, smoothstep(0.0, -0.08, h)); }' +
         // 薄い雲の帯（大群モードでは省く）。夕日の側ほど明るく染まる
         '  if (uCloud > 0.5 && h > 0.015 && h < 0.42) {' +
         '    float a = atan(d.z, d.x);' +
@@ -1702,7 +1763,13 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
         '    float band = smoothstep(0.015, 0.06, h) * (1.0 - smoothstep(0.22, 0.42, h));' +
         '    float k = smoothstep(0.55, 0.78, n) * band * 0.6;' +
         '    vec3 cc = mix(vec3(0.74, 0.60, 0.70), vec3(1.0, 0.80, 0.64), sunS * 0.9 + 0.1);' +
-        '    c = mix(c, cc, k); }' +
+        '    cc = mix(cc, vec3(0.07, 0.07, 0.12), smoothstep(0.1, 0.9, uDark));' +   // 夜の雲は空より少し暗い影
+        '    c = mix(c, cc, k * (1.0 - 0.4 * uDark)); }' +
+        // v0.20 夜になると星がいくつか出る（大群モードでは省く）
+        '  if (uCloud > 0.5 && uDark > 0.45 && h > 0.12) {' +
+        '    vec2 g = vec2(atan(d.z, d.x) * 70.0, asin(h) * 140.0), cl = floor(g), fr = fract(g) - 0.5;' +
+        '    float st = step(0.9965, h21(cl)) * (1.0 - smoothstep(0.08, 0.3, length(fr)));' +
+        '    c += vec3(0.85, 0.88, 1.0) * st * smoothstep(0.45, 0.95, uDark) * (0.55 + 0.45 * h21(cl + 3.1)); }' +
         '  gl_FragColor = vec4(c, 1.0); }'
     }));
     sky.renderOrder = -1;
@@ -1710,7 +1777,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 
     /* ---------------- 地面 ---------------- */
     var ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.ShaderMaterial({
-      fog: false,
+      fog: false, uniforms: { uHaze: hazeC, uDark: darkU },
       vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
       fragmentShader: HAZE_GLSL + 'varying vec3 vW; void main(){ float d = distance(vW, cameraPosition); gl_FragColor = vec4(haze(vec3(0.11, 0.10, 0.13), d), 1.0); }'
     }));
@@ -1719,7 +1786,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 
     /* ---------------- 駅前の街（ビル・駅舎） ----------------
      * 側面の窓は、面ごとのメートル単位の座標（aWin）から格子を作り、灯りの割合 uLit で点ける */
-    var cityU = { uLit: { value: 0.12 } };
+    var cityU = { uLit: { value: 0.12 }, uHaze: hazeC, uDark: darkU };
     var city = (function () {
       var pos = [], win = [], seed = [], r = makeRng(31);
       function quad(a, b, c, d, w, h, s) {   // a-b-c-d は反時計回り。w,h は面の幅と高さ（m）
@@ -1761,14 +1828,15 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
         fragmentShader: HAZE_GLSL + 'uniform float uLit; varying vec2 vWin; varying float vSeed; varying vec3 vW;' +
           'float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }' +
           'void main(){ float d = distance(vW, cameraPosition);' +
-          '  vec3 c = vec3(0.055, 0.048, 0.07);' +
+          '  vec3 c = vec3(0.055, 0.048, 0.07), glow = vec3(0.0);' +
           '  if (vWin.x >= 0.0) {' +
           '    vec2 cell = floor(vWin / vec2(3.2, 3.6)), f = fract(vWin / vec2(3.2, 3.6));' +
           '    float inWin = step(0.22, f.x) * step(f.x, 0.78) * step(0.3, f.y) * step(f.y, 0.75) * step(1.0, cell.y);' +
           '    float lit = step(h21(cell + vSeed * 97.0), uLit);' +
           '    float warm = h21(cell * 1.7 + vSeed * 13.0);' +
-          '    c += inWin * lit * mix(vec3(1.0, 0.72, 0.42), vec3(0.85, 0.9, 1.0), step(0.8, warm)) * 0.9; }' +
-          '  gl_FragColor = vec4(haze(c, d), 1.0); }'
+          '    glow = inWin * lit * mix(vec3(1.0, 0.72, 0.42), vec3(0.85, 0.9, 1.0), step(0.8, warm)) * 0.9; }' +
+          '  float f = 1.0 - exp(-d * 0.0011);' +
+          '  gl_FragColor = vec4(haze(c, d) + glow * (1.0 - f * 0.75), 1.0); }'
       }));
     })();
     group.add(city);
@@ -1802,7 +1870,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       geos.forEach(function (g) { var ng = g.index ? g.toNonIndexed() : g, a = ng.attributes.position.array; for (var i = 0; i < a.length; i++) pos.push(a[i]); });
       var mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       return new THREE.Mesh(mg, new THREE.ShaderMaterial({
-        fog: false,
+        fog: false, uniforms: { uHaze: hazeC, uDark: darkU },
         vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
         fragmentShader: HAZE_GLSL + 'varying vec3 vW; void main(){ gl_FragColor = vec4(haze(vec3(0.035, 0.04, 0.045), distance(vW, cameraPosition)), 1.0); }'
       }));
@@ -2020,7 +2088,8 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
         var dx = X - camP.x, dy = Y - camP.y, dz = Z - camP.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
         var s = P.bodyLen * engine.size[i], spanPx = s * 1.7 * pxPerM / d;
         if (spanPx < MINPX) s *= MINPX / spanPx;
-        if (pst && pst[i] >= 2) { var bodyPx = s * pxPerM / d; if (bodyPx < 7) s *= 7 / bodyPx; }   // v0.17 止まった鳥は翼をたたんで小さくなるので、見かけの体長の下限を付ける
+        if (pst && pst[i] >= 2) { var bodyPx = s * pxPerM / d; if (bodyPx < 7) s *= 7 / bodyPx; }
+        if (pst && pst[i] === 4) s = 0;   // v0.20 ねぐらの木の中に入った鳥は見えない   // v0.17 止まった鳥は翼をたたんで小さくなるので、見かけの体長の下限を付ける
         var o = i * 16;
         m[o] = Xx * s; m[o + 1] = Xy * s; m[o + 2] = Xz * s; m[o + 3] = 0;
         m[o + 4] = Yx * s; m[o + 5] = Yy * s; m[o + 6] = Yz * s; m[o + 7] = 0;
@@ -2122,6 +2191,11 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       setVisible: function (v) { group.visible = v; if (!v) { falconApi.clear(); } },
       update: update, setTag: setTag, falcon: falconApi,
       setLit: function (v) { cityU.uLit.value = v; lamps.userData.mat.opacity = Math.max(0, Math.min(1, (v - 0.1) * 2.5)); },
+      // v0.20 空の暗さ（0 = 日没直後の夕焼け、1 = 夜）
+      setDark: function (v) {
+        darkU.value = v;
+        hazeC.value.set(HAZE_DUSK[0] + (HAZE_NIGHT[0] - HAZE_DUSK[0]) * v, HAZE_DUSK[1] + (HAZE_NIGHT[1] - HAZE_DUSK[1]) * v, HAZE_DUSK[2] + (HAZE_NIGHT[2] - HAZE_DUSK[2]) * v);
+      },
       reset: function () { renderedN = 0; falconApi.clear(); treeSeatCache = {}; }
     };
   };
@@ -2130,7 +2204,8 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 </script>
 <script>
 /* =====================================================================
- * FLOCK app v0.19（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.20（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ *   v0.20: ムクドリの時間の流れ（成長モードのとき：日没 → 灯り → ねぐら入り → 夕方からやり直し）
  *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作
  * ===================================================================== */
 (function () {
@@ -2597,6 +2672,31 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   var starView = FLOCK.createStarlingView({ THREE: THREE, cap: CAP, engine: engine });
   scene.add(starView.group);
   var seaFog = scene.fog, skyFog = new THREE.FogExp2(0xcc9ea4, 0.0012);
+  /* v0.20 ムクドリの時間の流れ（設計書 §16.7。成長モードのときだけ）
+   *   0:00 夕焼け → 6:00 までに日没・薄暮（灯りが点き始める）→ 6:00 ねぐら入り → 7:20 ごろ空が空になる → 7:30 夕方からやり直し
+   *   時計は物理の刻みで進むので、一時停止すると止まる */
+  var DAY = { ROOST: 360, END: 450, FADE: 14 }, day = { t: 0, cycle: 0 };
+  var FOG_DUSK = new THREE.Color(0xcc9ea4), FOG_NIGHT = new THREE.Color(0x14131d);
+  function sm(a, b, x) { var t = (x - a) / (b - a); t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); }
+  function dayOn() { return isStar() && settings.growth; }
+  function duskDark() {
+    if (!dayOn()) return 0;
+    var t = day.t, d = 0.3 * sm(90, DAY.ROOST, t) + 0.7 * sm(DAY.ROOST, DAY.END - 10, t);   // ねぐら入りまでは明るさを保ち（鳥が見えるように）、ねぐら入りの間に夜になる
+    if (day.cycle > 0 && t < DAY.FADE) d = Math.max(d, 1 - sm(0, DAY.FADE, t));   // 夜から夕焼けへゆっくり戻る
+    return d;
+  }
+  function stepDay(dt) {
+    if (!dayOn()) return;
+    day.t += dt;
+    if (day.t >= DAY.ROOST && !engine.roosting() && !day.roosted) { day.roosted = true; engine.roostSite(starView.TREES); }
+    if (day.t >= DAY.END) { restart(undefined, true); }
+  }
+  function applyDay() {
+    var d = duskDark();
+    starView.setDark(d);
+    starView.setLit(0.12 + 0.43 * sm(0.1, 0.8, d));   // 空が暗くなるにつれて、窓と街灯がぽつぽつ点く（夜でも半分ほど）
+    skyFog.color.copy(FOG_DUSK).lerp(FOG_NIGHT, d);
+  }
 
   function applyLandmarks() {
     var st = isStar();   // ムクドリでは海底と岩を使わない
@@ -2661,13 +2761,13 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     var LEAD = 0.7, ax = c[0] + cVel.x * LEAD, ay = c[1] + cVel.y * LEAD, az = c[2] + cVel.z * LEAD, spT = engine.spread;
     // v0.17 止まり木：止まっている（降りている）鳥がいるときは、空の群れとの中間を向き、両方が入るように画角を広げる
     var pn = 0, pcx = 0, pcy = 0, pcz = 0;
-    for (var i = 0; i < engine.n; i++) if (engine.pst[i]) { pcx += engine.px[i]; pcy += engine.py[i]; pcz += engine.pz[i]; pn++; }
+    for (var i = 0; i < engine.n; i++) if (engine.pst[i] && engine.pst[i] < 4) { pcx += engine.px[i]; pcy += engine.py[i]; pcz += engine.pz[i]; pn++; }   // v0.20 ねぐらの木の中の鳥は数えない
     if (pn > 0) {
       pcx /= pn; pcy /= pn; pcz /= pn;
       var pext = 0;   // 止まっている鳥の広がり（電線の区間の長さの半分くらい）
-      for (i = 0; i < engine.n; i++) if (engine.pst[i]) pext = Math.max(pext, Math.hypot(engine.px[i] - pcx, engine.py[i] - pcy, engine.pz[i] - pcz));
+      for (i = 0; i < engine.n; i++) if (engine.pst[i] && engine.pst[i] < 4) pext = Math.max(pext, Math.hypot(engine.px[i] - pcx, engine.py[i] - pcy, engine.pz[i] - pcz));
       var half = Math.hypot(ax - pcx, ay - pcy, az - pcz) / 2;
-      if (pn >= engine.n - 3) { ax = pcx; ay = pcy; az = pcz; spT = (pext + 4) / 1.8; }   // ほぼ全員が止まったら、止まり木を見る
+      if (pn >= engine.n - engine.roostedN - 3) { ax = pcx; ay = pcy; az = pcz; spT = (pext + 4) / 1.8; }   // ほぼ全員が止まったら、止まり木を見る
       else { ax = (ax + pcx) / 2; ay = (ay + pcy) / 2; az = (az + pcz) / 2; spT = Math.max(spT, (half + Math.max(pext, spT)) / 1.8); }
     }
     camTarget.x += (ax - camTarget.x) * k; camTarget.y += (ay - camTarget.y) * k; camTarget.z += (az - camTarget.z) * k;
@@ -2992,7 +3092,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       if (fal.chasing) starView.falcon.release();
       else if (e.type === 'pointerup') {
         // v0.17 止まり木：電線や木をタップしたら、そこへ降りる。空をタップしたらハヤブサ（止まっている鳥は飛び立つ）
-        var hit = starView.pickPerch(fal.x0, fal.y0, camera, canvas.getBoundingClientRect());
+        var hit = engine.roosting() ? null : starView.pickPerch(fal.x0, fal.y0, camera, canvas.getBoundingClientRect());   // v0.20 ねぐら入りの間はハヤブサだけ
         if (hit) engine.perchSite(hit);   // v0.19 群れは上空を回ってから、決断が広がって降りる
         else if (screenToPlane(fal.x0, fal.y0, camTarget, tmpV)) { starView.falcon.dive(tmpV.clone(), camera.position); engine.scarePerched(tmpV.x, tmpV.y, tmpV.z); }
       }
@@ -3222,7 +3322,8 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   $('btnGuide').addEventListener('click', function () { openSheet(false); showGuide(); });
   $('btnRestart').addEventListener('click', function () { restart(); openSheet(false); });
 
-  function restart(seed) {
+  function restart(seed, nextDay) {
+    day.t = 0; day.roosted = false; day.cycle = nextDay ? day.cycle + 1 : 0;   // v0.20
     releaseAll();
     engine.growthEnabled = settings.growth;
     var sN = startCount();
@@ -3236,7 +3337,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     camTarget.fromArray(engine.centroid); spreadSm = engine.spread;
     touch.s = 0; touch.init = false;
     clearTags();
-    togglePause(false);
+    if (!nextDay) togglePause(false);
     updateObsUI();
   }
 
@@ -3573,9 +3674,10 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   var countEl = $('count'), arrivingEl = $('arriving');
   var fpsFrames = 0, fpsT = 0, fps = 60, simMs = 0, metricT = 0, qualityT = 0, shownCount = -1, capHeld = false;
   var sbW = -1, sbBar = $('scalebarBar'), sbLabel = $('scalebarLabel'), SB_STEPS = [0.5, 1, 2, 5, 10, 20], SB_STEPS_SKY = [1, 2, 5, 10, 20, 50, 100];
+  function clockStr(t) { var m = Math.floor(t / 60), q = Math.floor(t % 60); return m + ':' + (q < 10 ? '0' : '') + q; }
   function updateHud(dt) {
     if (engine.joined !== shownCount) { shownCount = engine.joined; countEl.textContent = shownCount; }
-    var arriving = engine.n - engine.joined;
+    var arriving = engine.n - engine.joined - engine.roostedN;   // v0.20 ねぐらの木に入った鳥は数えない
     if (settings.scalebar) {   // 群れの中心の奥行きでの長さ（1ワールド単位 = 0.5m）
       var pxM = H / (2 * camDist * tanHalf) * (isStar() ? 1 : 2), steps = isStar() ? SB_STEPS_SKY : SB_STEPS, m = steps[steps.length - 1];   // ムクドリは 1単位 = 1m
       for (var q = 0; q < steps.length; q++) if (pxM * steps[q] >= 44) { m = steps[q]; break; }
@@ -3591,7 +3693,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       metricT = 0;
       var st = engine.analyze();
       $('dN').textContent = engine.joined + ' / ' + engine.n;
-      $('dPerch').textContent = isStar() ? engine.perchedN + ' 羽' : '-';   // v0.17 止まっている羽数
+      $('dPerch').textContent = isStar() ? engine.perchedN + ' 羽' + (dayOn() ? '・ねぐら ' + engine.roostedN + ' 羽・' + clockStr(day.t) + ' / 7:30' : '') : '-';   // v0.17 止まっている羽数（v0.20 ねぐらと時刻）
       $('dFps').textContent = fps.toFixed(0);
       $('dSim').textContent = simMs.toFixed(2);
       $('dP').textContent = st.P.toFixed(3);
@@ -3627,6 +3729,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       var steps = 0;
       while (acc >= STEP && steps < 4) {
         updateTouch(STEP);
+        stepDay(STEP);
         var t0 = performance.now();
         engine.step(STEP);
         simMs += (performance.now() - t0 - simMs) * 0.1;
@@ -3638,7 +3741,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       engine._updateObstacles(Math.max(dt, 1 / 120));
     }
     updateCamera(dt, simClock);
-    if (isStar()) starView.update(paused ? 1 : acc / STEP, paused ? 0 : dt, camera, H, simClock, liteFx());
+    if (isStar()) { applyDay(); starView.update(paused ? 1 : acc / STEP, paused ? 0 : dt, camera, H, simClock, liteFx()); }
     else updateFish(paused ? 1 : acc / STEP, paused ? 0 : dt);
     syncObstacles();
     updateFoodPts();
@@ -3649,6 +3752,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   applySpecies();
   updateCamera(0, 0);
   FLOCK.debugAudio = function () { return audio; };
+  FLOCK.debugDay = function (t) { if (t != null) day.t = t; return { t: day.t, cycle: day.cycle, dark: duskDark(), on: dayOn() }; };   // 検証用（時間の流れ）
   FLOCK.debugStar = starView;   // 検証用（ムクドリの描画・ハヤブサ）
   FLOCK.debugPick = function (sx, sy) { var h = starView.pickPerch(sx, sy, camera, canvas.getBoundingClientRect()); return h ? h.kind : 'sky'; };   // 検証用
   FLOCK.debugScreen = function (x, y, z) {   // 検証用：ワールド座標 → 画面の位置（CSS px）

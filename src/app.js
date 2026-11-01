@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK app v0.19（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.20（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ *   v0.20: ムクドリの時間の流れ（成長モードのとき：日没 → 灯り → ねぐら入り → 夕方からやり直し）
  *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作
  * ===================================================================== */
 (function () {
@@ -466,6 +467,31 @@
   var starView = FLOCK.createStarlingView({ THREE: THREE, cap: CAP, engine: engine });
   scene.add(starView.group);
   var seaFog = scene.fog, skyFog = new THREE.FogExp2(0xcc9ea4, 0.0012);
+  /* v0.20 ムクドリの時間の流れ（設計書 §16.7。成長モードのときだけ）
+   *   0:00 夕焼け → 6:00 までに日没・薄暮（灯りが点き始める）→ 6:00 ねぐら入り → 7:20 ごろ空が空になる → 7:30 夕方からやり直し
+   *   時計は物理の刻みで進むので、一時停止すると止まる */
+  var DAY = { ROOST: 360, END: 450, FADE: 14 }, day = { t: 0, cycle: 0 };
+  var FOG_DUSK = new THREE.Color(0xcc9ea4), FOG_NIGHT = new THREE.Color(0x14131d);
+  function sm(a, b, x) { var t = (x - a) / (b - a); t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); }
+  function dayOn() { return isStar() && settings.growth; }
+  function duskDark() {
+    if (!dayOn()) return 0;
+    var t = day.t, d = 0.3 * sm(90, DAY.ROOST, t) + 0.7 * sm(DAY.ROOST, DAY.END - 10, t);   // ねぐら入りまでは明るさを保ち（鳥が見えるように）、ねぐら入りの間に夜になる
+    if (day.cycle > 0 && t < DAY.FADE) d = Math.max(d, 1 - sm(0, DAY.FADE, t));   // 夜から夕焼けへゆっくり戻る
+    return d;
+  }
+  function stepDay(dt) {
+    if (!dayOn()) return;
+    day.t += dt;
+    if (day.t >= DAY.ROOST && !engine.roosting() && !day.roosted) { day.roosted = true; engine.roostSite(starView.TREES); }
+    if (day.t >= DAY.END) { restart(undefined, true); }
+  }
+  function applyDay() {
+    var d = duskDark();
+    starView.setDark(d);
+    starView.setLit(0.12 + 0.43 * sm(0.1, 0.8, d));   // 空が暗くなるにつれて、窓と街灯がぽつぽつ点く（夜でも半分ほど）
+    skyFog.color.copy(FOG_DUSK).lerp(FOG_NIGHT, d);
+  }
 
   function applyLandmarks() {
     var st = isStar();   // ムクドリでは海底と岩を使わない
@@ -530,13 +556,13 @@
     var LEAD = 0.7, ax = c[0] + cVel.x * LEAD, ay = c[1] + cVel.y * LEAD, az = c[2] + cVel.z * LEAD, spT = engine.spread;
     // v0.17 止まり木：止まっている（降りている）鳥がいるときは、空の群れとの中間を向き、両方が入るように画角を広げる
     var pn = 0, pcx = 0, pcy = 0, pcz = 0;
-    for (var i = 0; i < engine.n; i++) if (engine.pst[i]) { pcx += engine.px[i]; pcy += engine.py[i]; pcz += engine.pz[i]; pn++; }
+    for (var i = 0; i < engine.n; i++) if (engine.pst[i] && engine.pst[i] < 4) { pcx += engine.px[i]; pcy += engine.py[i]; pcz += engine.pz[i]; pn++; }   // v0.20 ねぐらの木の中の鳥は数えない
     if (pn > 0) {
       pcx /= pn; pcy /= pn; pcz /= pn;
       var pext = 0;   // 止まっている鳥の広がり（電線の区間の長さの半分くらい）
-      for (i = 0; i < engine.n; i++) if (engine.pst[i]) pext = Math.max(pext, Math.hypot(engine.px[i] - pcx, engine.py[i] - pcy, engine.pz[i] - pcz));
+      for (i = 0; i < engine.n; i++) if (engine.pst[i] && engine.pst[i] < 4) pext = Math.max(pext, Math.hypot(engine.px[i] - pcx, engine.py[i] - pcy, engine.pz[i] - pcz));
       var half = Math.hypot(ax - pcx, ay - pcy, az - pcz) / 2;
-      if (pn >= engine.n - 3) { ax = pcx; ay = pcy; az = pcz; spT = (pext + 4) / 1.8; }   // ほぼ全員が止まったら、止まり木を見る
+      if (pn >= engine.n - engine.roostedN - 3) { ax = pcx; ay = pcy; az = pcz; spT = (pext + 4) / 1.8; }   // ほぼ全員が止まったら、止まり木を見る
       else { ax = (ax + pcx) / 2; ay = (ay + pcy) / 2; az = (az + pcz) / 2; spT = Math.max(spT, (half + Math.max(pext, spT)) / 1.8); }
     }
     camTarget.x += (ax - camTarget.x) * k; camTarget.y += (ay - camTarget.y) * k; camTarget.z += (az - camTarget.z) * k;
@@ -861,7 +887,7 @@
       if (fal.chasing) starView.falcon.release();
       else if (e.type === 'pointerup') {
         // v0.17 止まり木：電線や木をタップしたら、そこへ降りる。空をタップしたらハヤブサ（止まっている鳥は飛び立つ）
-        var hit = starView.pickPerch(fal.x0, fal.y0, camera, canvas.getBoundingClientRect());
+        var hit = engine.roosting() ? null : starView.pickPerch(fal.x0, fal.y0, camera, canvas.getBoundingClientRect());   // v0.20 ねぐら入りの間はハヤブサだけ
         if (hit) engine.perchSite(hit);   // v0.19 群れは上空を回ってから、決断が広がって降りる
         else if (screenToPlane(fal.x0, fal.y0, camTarget, tmpV)) { starView.falcon.dive(tmpV.clone(), camera.position); engine.scarePerched(tmpV.x, tmpV.y, tmpV.z); }
       }
@@ -1091,7 +1117,8 @@
   $('btnGuide').addEventListener('click', function () { openSheet(false); showGuide(); });
   $('btnRestart').addEventListener('click', function () { restart(); openSheet(false); });
 
-  function restart(seed) {
+  function restart(seed, nextDay) {
+    day.t = 0; day.roosted = false; day.cycle = nextDay ? day.cycle + 1 : 0;   // v0.20
     releaseAll();
     engine.growthEnabled = settings.growth;
     var sN = startCount();
@@ -1105,7 +1132,7 @@
     camTarget.fromArray(engine.centroid); spreadSm = engine.spread;
     touch.s = 0; touch.init = false;
     clearTags();
-    togglePause(false);
+    if (!nextDay) togglePause(false);
     updateObsUI();
   }
 
@@ -1442,9 +1469,10 @@
   var countEl = $('count'), arrivingEl = $('arriving');
   var fpsFrames = 0, fpsT = 0, fps = 60, simMs = 0, metricT = 0, qualityT = 0, shownCount = -1, capHeld = false;
   var sbW = -1, sbBar = $('scalebarBar'), sbLabel = $('scalebarLabel'), SB_STEPS = [0.5, 1, 2, 5, 10, 20], SB_STEPS_SKY = [1, 2, 5, 10, 20, 50, 100];
+  function clockStr(t) { var m = Math.floor(t / 60), q = Math.floor(t % 60); return m + ':' + (q < 10 ? '0' : '') + q; }
   function updateHud(dt) {
     if (engine.joined !== shownCount) { shownCount = engine.joined; countEl.textContent = shownCount; }
-    var arriving = engine.n - engine.joined;
+    var arriving = engine.n - engine.joined - engine.roostedN;   // v0.20 ねぐらの木に入った鳥は数えない
     if (settings.scalebar) {   // 群れの中心の奥行きでの長さ（1ワールド単位 = 0.5m）
       var pxM = H / (2 * camDist * tanHalf) * (isStar() ? 1 : 2), steps = isStar() ? SB_STEPS_SKY : SB_STEPS, m = steps[steps.length - 1];   // ムクドリは 1単位 = 1m
       for (var q = 0; q < steps.length; q++) if (pxM * steps[q] >= 44) { m = steps[q]; break; }
@@ -1460,7 +1488,7 @@
       metricT = 0;
       var st = engine.analyze();
       $('dN').textContent = engine.joined + ' / ' + engine.n;
-      $('dPerch').textContent = isStar() ? engine.perchedN + ' 羽' : '-';   // v0.17 止まっている羽数
+      $('dPerch').textContent = isStar() ? engine.perchedN + ' 羽' + (dayOn() ? '・ねぐら ' + engine.roostedN + ' 羽・' + clockStr(day.t) + ' / 7:30' : '') : '-';   // v0.17 止まっている羽数（v0.20 ねぐらと時刻）
       $('dFps').textContent = fps.toFixed(0);
       $('dSim').textContent = simMs.toFixed(2);
       $('dP').textContent = st.P.toFixed(3);
@@ -1496,6 +1524,7 @@
       var steps = 0;
       while (acc >= STEP && steps < 4) {
         updateTouch(STEP);
+        stepDay(STEP);
         var t0 = performance.now();
         engine.step(STEP);
         simMs += (performance.now() - t0 - simMs) * 0.1;
@@ -1507,7 +1536,7 @@
       engine._updateObstacles(Math.max(dt, 1 / 120));
     }
     updateCamera(dt, simClock);
-    if (isStar()) starView.update(paused ? 1 : acc / STEP, paused ? 0 : dt, camera, H, simClock, liteFx());
+    if (isStar()) { applyDay(); starView.update(paused ? 1 : acc / STEP, paused ? 0 : dt, camera, H, simClock, liteFx()); }
     else updateFish(paused ? 1 : acc / STEP, paused ? 0 : dt);
     syncObstacles();
     updateFoodPts();
@@ -1518,6 +1547,7 @@
   applySpecies();
   updateCamera(0, 0);
   FLOCK.debugAudio = function () { return audio; };
+  FLOCK.debugDay = function (t) { if (t != null) day.t = t; return { t: day.t, cycle: day.cycle, dark: duskDark(), on: dayOn() }; };   // 検証用（時間の流れ）
   FLOCK.debugStar = starView;   // 検証用（ムクドリの描画・ハヤブサ）
   FLOCK.debugPick = function (sx, sy) { var h = starView.pickPerch(sx, sy, camera, canvas.getBoundingClientRect()); return h ? h.kind : 'sky'; };   // 検証用
   FLOCK.debugScreen = function (x, y, z) {   // 検証用：ワールド座標 → 画面の位置（CSS px）

@@ -1,10 +1,11 @@
 <title>FLOCK</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!--
-  FLOCK 群れシミュレータ  プロトタイプ v0.19「TOUCH & AVOID」
-  準拠：FLOCK 群れシミュレータ 開発設計書 v0.7（2026-11-01）
+  FLOCK 群れシミュレータ  プロトタイプ v0.20「TOUCH & AVOID」
+  準拠：FLOCK 群れシミュレータ 開発設計書 v0.8（2026-11-02）
 
   更新履歴
+  v0.20 2026-11-02  ムクドリの時間の流れ（設計書 v0.8 §16.7。成長モードのときだけ）。日没から夜へ空が暮れ、窓と街灯が点き、6分でねぐら入り（街路樹へ渦を巻いて降りて見えなくなる）、7分半で夕方からやり直す。夜は星が出る。
   v0.19 2026-11-01  止まり木の降り方を先行研究に合わせて改めた（設計書 v0.7 §16.14）。全員が目的地を知っているように整列していく不自然さを解消。
                     ・タップすると、群れはまず止まり木の上空を回る
                     ・数羽が降り始めると「降りる」が近くの仲間へ伝わり、一気に降りる（Bhattacharya & Vicsek 2010）。止まり木の空きが少ないほど決めにくい
@@ -498,7 +499,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </div>
   </div>
   <div class="row">
-    <div class="lbl">仲間の合流（成長）<small>12匹（羽）から始まり、画面外の小さな群れが合流して、画質に合わせた最大数（自動は500〜1000）まで増えます。切り替えると群れを最初からやり直します。</small></div>
+    <div class="lbl">仲間の合流（成長）<small>12匹（羽）から始まり、画面外の小さな群れが合流して、画質に合わせた最大数（自動は500〜1000）まで増えます。切り替えると群れを最初からやり直します。ムクドリでは、日が暮れて約6分でねぐらの木へ降り、7分半で夕方からやり直します。</small></div>
     <label class="switch"><input type="checkbox" id="optGrowth" aria-label="仲間の合流"><span></span></label>
   </div>
   <div class="row">
@@ -563,6 +564,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     <details class="hist">
       <summary>更新履歴</summary>
       <p class="ver">
+      v0.20（2026-11-02）ムクドリ：時間の流れ（日没・街の灯り・ねぐら入り・夕方からやり直し。成長モードのとき）<br>
       v0.19（2026-11-01）ムクドリ：止まり木の降り方を自然に（上空を回り、決断が広がり、空きに止まる）<br>
       v0.18（2026-11-01）ムクドリ：夕方の空を明るく<br>
       v0.17（2026-11-01）ムクドリ：止まり木（電線や木をタップするとそこに止まる）<br>
@@ -586,6 +588,6 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </details>
     <div class="btn-row"><button class="chip" id="btnDevHide">裏モードを閉じる</button></div>
   </section>
-  <p class="ver" id="ver"><b>FLOCK v0.19</b> TOUCH &amp; AVOID<br>
+  <p class="ver" id="ver"><b>FLOCK v0.20</b> TOUCH &amp; AVOID<br>
   個体は人工モデルで、実際の魚や鳥の生態を厳密に再現したものではありません。</p>
 </section>

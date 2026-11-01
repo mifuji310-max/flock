@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK starling view v0.19（設計書 v0.7 §16）
+ * FLOCK starling view v0.20（設計書 v0.8 §16）
+ *   v0.20: 時間の流れ（空が暮れて夜になる・星・かすみと街の暗さ）。ねぐらの木に入った鳥は描かない
  *   v0.19: 止まり木は席を作らず、電線の形と木の中の空き場所をエンジンへ渡す
  *   v0.18: 夕方の空・雲・かすみ・地面を明るく
  *   v0.17: 止まり木（電線と木の席・タップの判定・止まった鳥は翼をたたむ）
@@ -14,7 +15,9 @@
   function makeRng(seed) { var a = seed >>> 0; return function () { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; }
 
   // 空と遠くの街にかかる、夕方のかすみ（距離で空の色に溶かす）
-  var HAZE_GLSL = 'vec3 haze(vec3 c, float d){ float f = 1.0 - exp(-d * 0.0011); return mix(c, vec3(0.80, 0.62, 0.64), f * 0.75); }';   // v0.18: 明るい夕方に合わせた
+  // v0.18: 明るい夕方に合わせた。v0.20: 色（uHaze）と暗さ（uDark：0 夕方〜1 夜）は時間の流れで変わる
+  var HAZE_GLSL = 'uniform vec3 uHaze; uniform float uDark; vec3 haze(vec3 c, float d){ float f = 1.0 - exp(-d * 0.0011); return mix(c * (1.0 - 0.55 * uDark), uHaze, f * 0.75); }';
+  var HAZE_DUSK = [0.80, 0.62, 0.64], HAZE_NIGHT = [0.075, 0.075, 0.12];
 
   FLOCK.createStarlingView = function (opts) {
     var THREE = opts.THREE, cap = opts.cap, engine = opts.engine;
@@ -22,13 +25,14 @@
     var group = new THREE.Group();
     group.visible = false;
     var SUN = new THREE.Vector3(-0.42, -0.06, -1).normalize();   // 沈んだばかりの太陽（観る人の前方やや左）
+    var hazeC = { value: new THREE.Vector3().fromArray(HAZE_DUSK) }, darkU = { value: 0 };   // v0.20 街・木・地面で共有する
 
     /* ---------------- 空 ---------------- */
-    var skyU = { uSun: { value: SUN }, uCloud: { value: 1 }, uTime: { value: 0 } };
+    var skyU = { uSun: { value: SUN }, uCloud: { value: 1 }, uTime: { value: 0 }, uDark: darkU };
     var sky = new THREE.Mesh(new THREE.SphereGeometry(2400, 48, 24), new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyU,
       vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: 'uniform vec3 uSun; uniform float uCloud; uniform float uTime; varying vec3 vDir;' +
+      fragmentShader: 'uniform vec3 uSun; uniform float uCloud; uniform float uTime; uniform float uDark; varying vec3 vDir;' +
         'float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }' +
         'float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);' +
         '  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }' +
@@ -42,7 +46,13 @@
         '  vec3 c = mix(hor, upper, smoothstep(0.0, 0.55, t));' +
         '  c = mix(c, zen, smoothstep(0.45, 1.0, t));' +
         '  c += vec3(1.0, 0.55, 0.25) * pow(max(dot(d, uSun), 0.0), 10.0) * 0.45;' +  // 沈んだ太陽の残り火
-        '  if (h < 0.0) c = mix(hor, hor * 0.55, smoothstep(0.0, -0.08, h));' +
+        // v0.20 夜へ：天頂から先に暗くなり、西の地平線の明るさは最後まで少し残る
+        '  vec3 nh = mix(vec3(0.16, 0.12, 0.19), vec3(0.30, 0.17, 0.14), sunS);' +
+        '  vec3 nc = mix(nh, vec3(0.05, 0.06, 0.14), smoothstep(0.0, 0.5, t));' +
+        '  nc = mix(nc, vec3(0.018, 0.024, 0.07), smoothstep(0.4, 1.0, t));' +
+        '  float dk = clamp(uDark * (1.0 + 0.3 * t) - 0.1 * sunS * (1.0 - t), 0.0, 1.0);' +
+        '  c = mix(c, nc, dk);' +
+        '  if (h < 0.0) { vec3 hh = mix(hor, nh, dk); c = mix(hh, hh * 0.55, smoothstep(0.0, -0.08, h)); }' +
         // 薄い雲の帯（大群モードでは省く）。夕日の側ほど明るく染まる
         '  if (uCloud > 0.5 && h > 0.015 && h < 0.42) {' +
         '    float a = atan(d.z, d.x);' +
@@ -51,7 +61,13 @@
         '    float band = smoothstep(0.015, 0.06, h) * (1.0 - smoothstep(0.22, 0.42, h));' +
         '    float k = smoothstep(0.55, 0.78, n) * band * 0.6;' +
         '    vec3 cc = mix(vec3(0.74, 0.60, 0.70), vec3(1.0, 0.80, 0.64), sunS * 0.9 + 0.1);' +
-        '    c = mix(c, cc, k); }' +
+        '    cc = mix(cc, vec3(0.07, 0.07, 0.12), smoothstep(0.1, 0.9, uDark));' +   // 夜の雲は空より少し暗い影
+        '    c = mix(c, cc, k * (1.0 - 0.4 * uDark)); }' +
+        // v0.20 夜になると星がいくつか出る（大群モードでは省く）
+        '  if (uCloud > 0.5 && uDark > 0.45 && h > 0.12) {' +
+        '    vec2 g = vec2(atan(d.z, d.x) * 70.0, asin(h) * 140.0), cl = floor(g), fr = fract(g) - 0.5;' +
+        '    float st = step(0.9965, h21(cl)) * (1.0 - smoothstep(0.08, 0.3, length(fr)));' +
+        '    c += vec3(0.85, 0.88, 1.0) * st * smoothstep(0.45, 0.95, uDark) * (0.55 + 0.45 * h21(cl + 3.1)); }' +
         '  gl_FragColor = vec4(c, 1.0); }'
     }));
     sky.renderOrder = -1;
@@ -59,7 +75,7 @@
 
     /* ---------------- 地面 ---------------- */
     var ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), new THREE.ShaderMaterial({
-      fog: false,
+      fog: false, uniforms: { uHaze: hazeC, uDark: darkU },
       vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
       fragmentShader: HAZE_GLSL + 'varying vec3 vW; void main(){ float d = distance(vW, cameraPosition); gl_FragColor = vec4(haze(vec3(0.11, 0.10, 0.13), d), 1.0); }'
     }));
@@ -68,7 +84,7 @@
 
     /* ---------------- 駅前の街（ビル・駅舎） ----------------
      * 側面の窓は、面ごとのメートル単位の座標（aWin）から格子を作り、灯りの割合 uLit で点ける */
-    var cityU = { uLit: { value: 0.12 } };
+    var cityU = { uLit: { value: 0.12 }, uHaze: hazeC, uDark: darkU };
     var city = (function () {
       var pos = [], win = [], seed = [], r = makeRng(31);
       function quad(a, b, c, d, w, h, s) {   // a-b-c-d は反時計回り。w,h は面の幅と高さ（m）
@@ -110,14 +126,15 @@
         fragmentShader: HAZE_GLSL + 'uniform float uLit; varying vec2 vWin; varying float vSeed; varying vec3 vW;' +
           'float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }' +
           'void main(){ float d = distance(vW, cameraPosition);' +
-          '  vec3 c = vec3(0.055, 0.048, 0.07);' +
+          '  vec3 c = vec3(0.055, 0.048, 0.07), glow = vec3(0.0);' +
           '  if (vWin.x >= 0.0) {' +
           '    vec2 cell = floor(vWin / vec2(3.2, 3.6)), f = fract(vWin / vec2(3.2, 3.6));' +
           '    float inWin = step(0.22, f.x) * step(f.x, 0.78) * step(0.3, f.y) * step(f.y, 0.75) * step(1.0, cell.y);' +
           '    float lit = step(h21(cell + vSeed * 97.0), uLit);' +
           '    float warm = h21(cell * 1.7 + vSeed * 13.0);' +
-          '    c += inWin * lit * mix(vec3(1.0, 0.72, 0.42), vec3(0.85, 0.9, 1.0), step(0.8, warm)) * 0.9; }' +
-          '  gl_FragColor = vec4(haze(c, d), 1.0); }'
+          '    glow = inWin * lit * mix(vec3(1.0, 0.72, 0.42), vec3(0.85, 0.9, 1.0), step(0.8, warm)) * 0.9; }' +
+          '  float f = 1.0 - exp(-d * 0.0011);' +
+          '  gl_FragColor = vec4(haze(c, d) + glow * (1.0 - f * 0.75), 1.0); }'
       }));
     })();
     group.add(city);
@@ -151,7 +168,7 @@
       geos.forEach(function (g) { var ng = g.index ? g.toNonIndexed() : g, a = ng.attributes.position.array; for (var i = 0; i < a.length; i++) pos.push(a[i]); });
       var mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       return new THREE.Mesh(mg, new THREE.ShaderMaterial({
-        fog: false,
+        fog: false, uniforms: { uHaze: hazeC, uDark: darkU },
         vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
         fragmentShader: HAZE_GLSL + 'varying vec3 vW; void main(){ gl_FragColor = vec4(haze(vec3(0.035, 0.04, 0.045), distance(vW, cameraPosition)), 1.0); }'
       }));
@@ -369,7 +386,8 @@
         var dx = X - camP.x, dy = Y - camP.y, dz = Z - camP.z, d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
         var s = P.bodyLen * engine.size[i], spanPx = s * 1.7 * pxPerM / d;
         if (spanPx < MINPX) s *= MINPX / spanPx;
-        if (pst && pst[i] >= 2) { var bodyPx = s * pxPerM / d; if (bodyPx < 7) s *= 7 / bodyPx; }   // v0.17 止まった鳥は翼をたたんで小さくなるので、見かけの体長の下限を付ける
+        if (pst && pst[i] >= 2) { var bodyPx = s * pxPerM / d; if (bodyPx < 7) s *= 7 / bodyPx; }
+        if (pst && pst[i] === 4) s = 0;   // v0.20 ねぐらの木の中に入った鳥は見えない   // v0.17 止まった鳥は翼をたたんで小さくなるので、見かけの体長の下限を付ける
         var o = i * 16;
         m[o] = Xx * s; m[o + 1] = Xy * s; m[o + 2] = Xz * s; m[o + 3] = 0;
         m[o + 4] = Yx * s; m[o + 5] = Yy * s; m[o + 6] = Yz * s; m[o + 7] = 0;
@@ -471,6 +489,11 @@
       setVisible: function (v) { group.visible = v; if (!v) { falconApi.clear(); } },
       update: update, setTag: setTag, falcon: falconApi,
       setLit: function (v) { cityU.uLit.value = v; lamps.userData.mat.opacity = Math.max(0, Math.min(1, (v - 0.1) * 2.5)); },
+      // v0.20 空の暗さ（0 = 日没直後の夕焼け、1 = 夜）
+      setDark: function (v) {
+        darkU.value = v;
+        hazeC.value.set(HAZE_DUSK[0] + (HAZE_NIGHT[0] - HAZE_DUSK[0]) * v, HAZE_DUSK[1] + (HAZE_NIGHT[1] - HAZE_DUSK[1]) * v, HAZE_DUSK[2] + (HAZE_NIGHT[2] - HAZE_DUSK[2]) * v);
+      },
       reset: function () { renderedN = 0; falconApi.clear(); treeSeatCache = {}; }
     };
   };

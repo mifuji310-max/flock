@@ -274,6 +274,32 @@ function wireSite(e) {   // 地上約10 m、長さ40 m、たるんだ3本の電�
   check('S11 止まり木 木の樹冠の中に止まる（120羽まで）', on >= 60 && on <= 120 && out === 0 && low > G, `止まった=${on} 樹冠の外=${out}`);
 }
 
+{   // S05 成長モードの1回の流れ（設計書 §16.7）：最大数まで合流 → ねぐら入りで全員が街路樹へ → 夕方からやり直す
+  const e = new FlockEngine({ species: 'starling', seed: 5, growth: true, capacity: 2000, maxCount: 600 }), G = e.params.groundY, trees = [];
+  for (let row = 0; row < 2; row++) for (let k = 0; k < 8; k++) trees.push({ x: -78 + k * 22 + row * 11, y: G + 8, z: 18 - row * 20, r: 4 });
+  run(e, 360);
+  check('S05 1回の流れ 6分までに最大数まで合流する', e.n >= 570 && e.joined >= e.n - 10, `羽数=${e.n} 合流済み=${e.joined}`);
+  e.roostSite(trees);
+  const nAtRoost = e.n;
+  let t = 0, first = -1, t10 = -1, t90 = -1, low = 1e9, hidMin = 0, drop = 0, scared = false;
+  run(e, 100, () => {
+    t += DT;
+    const f = e.roostedN / e.n;
+    if (first < 0 && e.roostedN > 0) first = t;
+    if (t10 < 0 && f >= 0.1) t10 = t;
+    if (t90 < 0 && f >= 0.9) t90 = t;
+    for (let i = 0; i < e.n; i++) if (e.pst[i] !== 4) low = Math.min(low, e.py[i]);
+    if (!scared && t >= 30) { scared = true; hidMin = e.roostedN; e.scarePerched(e.site.cx, e.site.cy + 10, e.site.cz); }
+    if (scared && e.roostedN < hidMin) drop++;
+  });
+  check('S05 ねぐら入り すぐには降りない（まず上空を回る）', first >= 5, `最初の1羽=${first.toFixed(1)}秒`);
+  check('S05 ねぐら入り 少しずつ降りる（1割から9割まで20秒以上）', t90 - t10 >= 20, `${t10.toFixed(1)}秒 → ${t90.toFixed(1)}秒`);
+  check('S05 ねぐら入り 驚かせても呼びかけは続き、木の中の鳥は出てこない', e.site && e.site.kind === 'roost' && drop === 0, `木の中から出た回数=${drop}`);
+  check('S05 ねぐら入り 100秒以内に全員が木の中へ入り、空にいる数は0になる', e.roostedN === nAtRoost && e.joined === 0, `木の中=${e.roostedN}/${nAtRoost} 空=${e.joined}`);
+  check('S05 ねぐら入り 地面より下へ行かない・NaNが出ない', low > G && ![...e.px.subarray(0, e.n)].some(isNaN), `最も低い=地上${(low - G).toFixed(1)} m`);
+  e.reset(9);
+  check('S05 やり直し 12羽から始まり、ねぐらの状態は消える', e.n === 12 && e.roostedN === 0 && !e.site, `羽数=${e.n}`);
+}
 // 種類の切り替え：ムクドリ → イワシに戻すと、イワシのパラメータで最初からやり直す
 {
   const e = starling(300, 2);
