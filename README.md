@@ -27,7 +27,7 @@ python3 tests/browser/smoke.py   # 画面の動作確認（Playwright が必要�
 python3 tools/build.py 0.15      # src/ から index.html と releases/flock_v0.15.html を作る
 ```
 
-- 仕様：[docs/FLOCK_設計書_v0.4.md](docs/FLOCK_設計書_v0.4.md)
+- 仕様：[docs/FLOCK_設計書_v0.5.md](docs/FLOCK_設計書_v0.5.md)
 - 引き継ぎ：[docs/FLOCK_引き継ぎ書_v1.0.md](docs/FLOCK_引き継ぎ書_v1.0.md)
 - 変更履歴：[CHANGELOG.md](CHANGELOG.md)
 
