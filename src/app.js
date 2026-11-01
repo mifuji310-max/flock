@@ -1,5 +1,5 @@
 /* =====================================================================
- * FLOCK app v0.12（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.13（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
  * ===================================================================== */
 (function () {
   'use strict';
@@ -632,6 +632,10 @@
   var touchTool = 'touch', feedLast = { x: 0, y: 0 };
   function scatterFood(sx, sy, count) {
     if (!screenToPlane(sx, sy, camTarget, tmpV)) return 0;
+    // v0.13: 見下ろしたときに海底より下の点にならないよう、指の視線上で海底から50cm上の点に置き直す
+    var minY = FLOOR_Y + engine.params.foodMinH;
+    if (tmpV.y < minY && !rayToHorizontal(setRay(sx, sy), minY, tmpV)) return 0;
+    clampXZ(tmpV);
     var before = engine.foodN;
     engine.addFood(tmpV.x, tmpV.y, tmpV.z, count, count > 10 ? 0.8 : 0.4);
     if (engine.foodN === before) { toast('餌がいっぱいです。食べ終わるまで少し待ってください'); return 0; }

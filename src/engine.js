@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK simulation engine  v0.5
+ * FLOCK simulation engine  v0.6
+ *   v0.6 2026-11-01 海底より下に餌をまかない・魚が海底より下へ潜らない
  *   v0.5 2026-10-31 餌やり：沈む餌粒、餌への誘引・興奮（feed）の近傍伝播・捕食
  *   v0.4 2026-10-31 障害物の種類：浮き玉（球＋係留ロープ）と岩の柱（鉛直カプセル）。海底基準で配置
  *   v0.3 2026-10-31 固定の目印（岩）を回避対象 landmarks として追加
@@ -17,7 +18,7 @@
 (function (root) {
   'use strict';
 
-  var ENGINE_VERSION = '0.5';
+  var ENGINE_VERSION = '0.6';
 
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -62,6 +63,7 @@
     speedMatch: 0.30,                    // 近傍速度への同調
     obsMargin: 0.38, lookAhead: 1.15,    // 拡張半径の余裕 / 予測時間 (s)
     wFood: 3.2, foodRange: 9, eatDist: 0.2, biteProb: 0.25, sinkSpeed: 0.2, feedDecay: 0.32,   // 餌やり（biteProb：届いても毎回は食べられない）
+    foodMinH: 1.0, floorGuard: 0.8,   // v0.6: 餌をまく最低の高さ（海底から）、魚が海底を避け始める高さ
     obsMaxSpeed: 8.0, obsRadiusRate: 2.5,
     bounds: [16, 8, 14]                  // ソフト境界（楕円体の半径）
   };
@@ -201,7 +203,8 @@
   };
   /* ---------------- 餌（v0.5） ---------------- */
   FlockEngine.prototype.addFood = function (x, y, z, count, spread) {
-    var r = this.rng;
+    var r = this.rng, minY = -this.params.bounds[1] + this.params.foodMinH;
+    if (y < minY) y = minY;   // v0.6: 海底より下にはまかない（粒の広がりを含めて海底の上に収める）
     for (var k = 0; k < count && this.foodN < this.FOOD_CAP; k++) {
       var p = this._randInBall(spread), f = this.foodN++;
       this.foodX[f] = x + p[0]; this.foodY[f] = y + p[1] * 0.6; this.foodZ[f] = z + p[2];
@@ -491,6 +494,9 @@
         var bs = smoothstep(0.7, 1.25, e);
         Bx = bx / bl * bs; By = by / bl * bs; Bz = bz / bl * bs;
       }
+      // 6d'. 海底（v0.6）：海底に近づくと上向きに舵を切る（海底より下へ潜らない）
+      var hFl = y + B[1];
+      if (hFl < P.floorGuard) By += 1.5 * (1 - (hFl > 0 ? hFl : 0) / P.floorGuard);
 
       // 6e. 餌：近くの餌粒へ向かう。興奮（feed）は近傍へ伝わり、遠くの仲間も餌の方へ集まる
       var Fx = 0, Fy = 0, Fz = 0, fe = feed[i], feT = nbFeed * 0.8;
@@ -598,6 +604,9 @@
       }
       if (ins && !this.inside[i]) this.intrusions++;
       this.inside[i] = ins;
+      // 海底より下へは出さない（最後の保険。v0.6）
+      var flMin = P.bodyRadius - P.bounds[1];
+      if (Y < flMin) { Y = flMin; if (VY < 0) VY = 0; }
       // NaN・無限大のガード
       if (!(isFinite(X) && isFinite(Y) && isFinite(Z) && isFinite(VX) && isFinite(VY) && isFinite(VZ))) {
         X = cxm + (this.rng() - 0.5); Y = cym + (this.rng() - 0.5); Z = czm + (this.rng() - 0.5);

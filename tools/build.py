@@ -50,12 +50,12 @@ def main():
     page = wrap(shell + '\n<script src="' + THREE_CDN + '"></script>\n'
                 '<script>\n' + engine + '\n</script>\n<script>\n' + app + '\n</script>\n')
 
-    (ROOT / 'index.html').write_text(page, encoding='utf-8')
+    (ROOT / 'index.html').write_text(page, encoding='utf-8', newline='\n')   # Windows でも改行は LF
     release = ROOT / 'releases' / f'flock_v{version}.html'
     if release.exists():
         print(f'{release.name} は既にあるため上書きしません（版数を上げてください）')
     else:
-        release.write_text(page, encoding='utf-8')
+        release.write_text(page, encoding='utf-8', newline='\n')
         print('書き出し:', release.relative_to(ROOT))
     print('書き出し: index.html', f'({len(page):,} bytes, v{version})')
 

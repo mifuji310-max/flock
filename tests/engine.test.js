@@ -118,6 +118,19 @@ for (const kind of ['buoy', 'pillar']) {
   check('餌 上限を超えてまけない', e.foodN === e.FOOD_CAP, `foodN=${e.foodN}`);
 }
 
+// 餌と海底（v0.13）：海底より下の点にまいても海底の上に置かれ、魚も海底より下へ潜らない
+{
+  const e = new FlockEngine({ seed: 7, growth: false }), floor = -e.params.bounds[1];
+  run(e, 10); const c = e.centroid.slice();
+  e.addFood(c[0], floor - 3, c[2], 28, 0.8);
+  let minFood = 99; for (let f = 0; f < e.foodN; f++) minFood = Math.min(minFood, e.foodY[f]);
+  check('海底 餌は海底の上にまかれる', minFood > floor + 0.3, `最も低い粒=${(minFood - floor).toFixed(2)}（海底から）`);
+  let minFish = 99;
+  run(e, 12, () => { for (let i = 0; i < e.n; i++) minFish = Math.min(minFish, e.py[i]); });
+  check('海底 魚が海底より下へ潜らない', minFish >= floor, `最も低い魚=${(minFish - floor).toFixed(2)}（海底から）`);
+  check('海底 海底近くの餌も食べ切る', e.eaten === 28, `食べた=${e.eaten}`);
+}
+
 // T13 乱数シード固定で再現できる
 {
   const a = new FlockEngine({ seed: 1234, growth: false }), b = new FlockEngine({ seed: 1234, growth: false });
