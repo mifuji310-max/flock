@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK app v0.20（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.21（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ *   v0.21: 押している電線・木を光らせる／最初のきらめき／空の長押しで呼び寄せ
  *   v0.20: ムクドリの時間の流れ（成長モードのとき：日没 → 灯り → ねぐら入り → 夕方からやり直し）
  *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作
  * ===================================================================== */
@@ -645,7 +646,28 @@
 
   function touchRadius() { var v = viewSizeAtTarget(); return 0.15 * Math.min(v.w, v.h) * touchScale; }
 
-  var fal = { sx: 0, sy: 0, x0: 0, y0: 0, chasing: false };   // v0.15 ハヤブサの指
+  var fal = { sx: 0, sy: 0, x0: 0, y0: 0, chasing: false, lp: 0, beckon: false };   // v0.15 ハヤブサの指（v0.21 長押しの呼び寄せ）
+  /* v0.21 呼び寄せ：空を長押し（約0.45秒）すると、群れがその上空を回る。指を動かすと呼ぶ場所も動く。離すと自由に戻る */
+  var LONG_MS = 330, beckonEl = document.getElementById('beckon');
+  function beckonAt(x, y) {
+    if (!screenToPlane(x, y, camTarget, tmpV)) return;
+    clampXZ(tmpV);
+    var B = engine.params.bounds; tmpV.y = Math.max(-B[1] * 0.8, Math.min(B[1] * 0.8, tmpV.y));
+    engine.setBeacon(tmpV.x, tmpV.y, tmpV.z);
+    if (beckonEl) { beckonEl.style.transform = 'translate(' + x + 'px,' + y + 'px)'; }
+  }
+  function startBeckon() {
+    fal.lp = 0;
+    if (gesture !== 'falcon' || fal.chasing || !touch.down || engine.roosting()) return;
+    fal.beckon = true;
+    beckonAt(fal.sx, fal.sy);
+    if (beckonEl) { beckonEl.hidden = false; beckonEl.classList.remove('off'); }
+  }
+  function endFalconExtras() {
+    if (fal.lp) { clearTimeout(fal.lp); fal.lp = 0; }
+    if (fal.beckon) { fal.beckon = false; engine.endBeacon(); if (beckonEl) beckonEl.classList.add('off'); }
+    starView.setHover(null);
+  }
   function updateTouch(dt) {
     if (isStar()) {   // ムクドリ：指はハヤブサを動かす。エンジンには predator として渡す
       engine.repulsors = emptyList; touchViz.visible = false;
@@ -760,7 +782,7 @@
   /* ---------------- Pointer Events ---------------- */
   function pdist() { var a = Array.from(pointers.values()); return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1; }
   function pmid() { var a = Array.from(pointers.values()); return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 }; }
-  function endSingle() { touch.down = false; drag = null; look = null; made = null; }
+  function endSingle() { touch.down = false; drag = null; look = null; made = null; endFalconExtras(); }
   function releaseAll() { cancelPending(); pointers.clear(); endSingle(); pinch = null; gesture = 'none'; }
 
   /* v0.12: 拡大縮小のつもりが「触る・餌・障害物」にならないように
@@ -792,6 +814,10 @@
     if (mode === 'touch' && isStar()) {   // v0.15 ハヤブサ：タップで急降下、なぞると追いかける
       gesture = 'falcon'; touch.down = true;
       fal.sx = fal.x0 = x; fal.sy = fal.y0 = y; fal.chasing = false;
+      // v0.21 押した所が電線や木なら光らせる（離すと止まり木）。空なら長押しで呼び寄せ
+      var tgt = engine.roosting() ? null : starView.pickTarget(x, y, camera, canvas.getBoundingClientRect());
+      starView.setHover(tgt); fal.tgt = tgt;
+      if (!tgt && !engine.roosting()) fal.lp = setTimeout(startBeckon, LONG_MS);
       return;
     }
     if (mode === 'touch' && touchTool === 'feed') {   // 餌やり：タップした場所に餌をまく
@@ -825,7 +851,10 @@
     } else if (gesture === 'obstacle') obstacleMove(x, y);
     else if (gesture === 'falcon') {
       fal.sx = x; fal.sy = y;
+      if (fal.beckon) { beckonAt(x, y); return; }   // v0.21 呼び寄せ中は、呼ぶ場所を動かす
       if (!fal.chasing && Math.hypot(x - fal.x0, y - fal.y0) > 12 && screenToPlane(x, y, camTarget, tmpV)) {
+        if (fal.lp) { clearTimeout(fal.lp); fal.lp = 0; }
+        starView.setHover(null);
         fal.chasing = true;
         var fresh = !starView.falcon.active();
         starView.falcon.chase(tmpV.clone(), camera.position);
@@ -885,10 +914,12 @@
     if (gesture === 'look' && look && !look.moved && e.type === 'pointerup' && mode === 'watch') toggleTagAt(look.sx, look.sy);
     if (gesture === 'falcon') {
       if (fal.chasing) starView.falcon.release();
+      else if (fal.beckon) { /* v0.21 呼び寄せを終える（endSingle で片づける） */ }
       else if (e.type === 'pointerup') {
         // v0.17 止まり木：電線や木をタップしたら、そこへ降りる。空をタップしたらハヤブサ（止まっている鳥は飛び立つ）
-        var hit = engine.roosting() ? null : starView.pickPerch(fal.x0, fal.y0, camera, canvas.getBoundingClientRect());   // v0.20 ねぐら入りの間はハヤブサだけ
-        if (hit) engine.perchSite(hit);   // v0.19 群れは上空を回ってから、決断が広がって降りる
+        // v0.20 ねぐら入りの間はハヤブサだけ。v0.21 押したときに光った所に止まる（押している間にカメラが動いても変わらない）
+        var hit = engine.roosting() ? null : starView.perchFor(fal.tgt);
+        if (hit) { engine.perchSite(hit); starView.flashSite(hit); }   // v0.19 群れは上空を回ってから、決断が広がって降りる（v0.21 決まった所が1秒ほど光る）
         else if (screenToPlane(fal.x0, fal.y0, camTarget, tmpV)) { starView.falcon.dive(tmpV.clone(), camera.position); engine.scarePerched(tmpV.x, tmpV.y, tmpV.z); }
       }
     }
@@ -1000,11 +1031,11 @@
     watch: 'タップで魚に色を付けられます。ドラッグで視点を回せます'
   };
   var HINTS_STAR = {   // v0.15 ムクドリ
-    touch: '空をタップするとハヤブサ。電線や木をタップすると、そこに止まります',
+    touch: '空をタップでハヤブサ、長押しで呼び寄せ。光る電線や木をタップすると、そこに止まります',
     watch: 'タップで鳥に色を付けられます。ドラッグで見る向きを変えられます'
   };
   var GUIDE_SEA = guide.innerHTML;
-  var GUIDE_SKY = '夕暮れの空を、ムクドリの群れが飛びます。<br>空をタップするとハヤブサが急降下。<br>電線や木をタップすると、そこに止まります。' +
+  var GUIDE_SKY = '夕暮れの空を、ムクドリの群れが飛びます。<br>空をタップするとハヤブサが急降下。<br>空を長押しすると、群れがそこへ集まって回ります。<br>電線や木をタップすると、そこに止まります（押すと光ります）。' +
     '<span class="sub">2本指で見る向き・ズーム ／ 画面に触れると閉じます</span>';
   function showHint(m) {
     clearTimeout(hintTimer);
@@ -1144,6 +1175,7 @@
     document.body.classList.toggle('sky', st);   // v0.18 ムクドリでは画面の周辺を暗くしすぎない
     sky.visible = fish.visible = foodPts.visible = !st;
     starView.setVisible(st);
+    if (st) setTimeout(function () { if (isStar()) starView.shimmer(); }, 1200);   // v0.21 タップできる電線と木を一度きらめかせる
     scene.fog = st ? skyFog : seaFog;
     camera.near = st ? 0.5 : 0.1; camera.far = st ? 5000 : 220;
     if (!st) { camera.fov = FOV; tanHalf = Math.tan(FOV * Math.PI / 360); }
@@ -1536,7 +1568,7 @@
       engine._updateObstacles(Math.max(dt, 1 / 120));
     }
     updateCamera(dt, simClock);
-    if (isStar()) { applyDay(); starView.update(paused ? 1 : acc / STEP, paused ? 0 : dt, camera, H, simClock, liteFx()); }
+    if (isStar()) { applyDay(); starView.setPR(pixelRatio); starView.update(paused ? 1 : acc / STEP, paused ? 0 : dt, camera, H, simClock, liteFx()); }
     else updateFish(paused ? 1 : acc / STEP, paused ? 0 : dt);
     syncObstacles();
     updateFoodPts();
@@ -1548,6 +1580,8 @@
   updateCamera(0, 0);
   FLOCK.debugAudio = function () { return audio; };
   FLOCK.debugDay = function (t) { if (t != null) day.t = t; return { t: day.t, cycle: day.cycle, dark: duskDark(), on: dayOn() }; };   // 検証用（時間の流れ）
+  FLOCK.debugHi = function () { return starView.debugHi(); };   // 検証用（電線・木の光）
+  FLOCK.debugBeacon = function () { var b = engine.beacon; return b ? { x: b.x, y: b.y, z: b.z, s: b.s, on: b.on } : null; };
   FLOCK.debugStar = starView;   // 検証用（ムクドリの描画・ハヤブサ）
   FLOCK.debugPick = function (sx, sy) { var h = starView.pickPerch(sx, sy, camera, canvas.getBoundingClientRect()); return h ? h.kind : 'sky'; };   // 検証用
   FLOCK.debugScreen = function (x, y, z) {   // 検証用：ワールド座標 → 画面の位置（CSS px）

@@ -1,10 +1,15 @@
 <title>FLOCK</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!--
-  FLOCK 群れシミュレータ  プロトタイプ v0.20「TOUCH & AVOID」
-  準拠：FLOCK 群れシミュレータ 開発設計書 v0.8（2026-11-02）
+  FLOCK 群れシミュレータ  プロトタイプ v0.21「TOUCH & AVOID」
+  準拠：FLOCK 群れシミュレータ 開発設計書 v0.9（2026-11-02）
 
   更新履歴
+  v0.21 2026-11-02  ムクドリ：タップできる場所と、呼び寄せ（設計書 v0.9 §16.15）。
+                    ・電線を、縁をぼかした細い帯で描く（拡大しても斜めの線が階段状にならない。つなぎ目も細かく）
+                    ・電線や木を押している間だけ、その電線（電柱と電柱の間）が細く光り、木は樹冠のふちがうっすら光る。止まり木に決まると1秒ほど光ってから消える
+                    ・ムクドリの画面になったとき、光が一度、左から右へ電線と木をなでる
+                    ・空を長押し（約0.45秒）すると、群れがその上空へ集まって回る。指を動かすと呼ぶ場所も動き、離すと自由に戻る。指の位置に小さな薄い輪を出す
   v0.20 2026-11-02  ムクドリの時間の流れ（設計書 v0.8 §16.7。成長モードのときだけ）。日没から夜へ空が暮れ、窓と街灯が点き、6分でねぐら入り（街路樹へ渦を巻いて降りて見えなくなる）、7分半で夕方からやり直す。夜は星が出る。
   v0.19 2026-11-01  止まり木の降り方を先行研究に合わせて改めた（設計書 v0.7 §16.14）。全員が目的地を知っているように整列していく不自然さを解消。
                     ・タップすると、群れはまず止まり木の上空を回る
@@ -156,6 +161,18 @@ body.sky .vignette { opacity: 0.35; }   /* v0.18 ムクドリ：明るい夕方�
   font-size: 12px; line-height: 1.6; text-align: center; transition: opacity .6s;
 }
 .mode-hint.fade { opacity: 0; }
+/* v0.21 呼び寄せ中の指の位置：小さな薄い輪（ゆっくり息をするように） */
+.beckon {
+  position: fixed; left: -17px; top: -17px; width: 34px; height: 34px; border-radius: 50%;
+  border: 1.5px solid rgba(255, 238, 214, 0.5); pointer-events: none; z-index: 3;
+  transition: opacity .5s; opacity: 1;
+}
+.beckon::after {
+  content: ''; position: absolute; inset: -1.5px; border-radius: 50%; border: 1.5px solid rgba(255, 238, 214, 0.35);
+  animation: beckonPulse 1.6s ease-out infinite;
+}
+.beckon.off { opacity: 0; }
+@keyframes beckonPulse { from { transform: scale(1); opacity: 0.8; } to { transform: scale(2.2); opacity: 0; } }
 .obs-lbl { font-size: 12px; color: var(--mute); }
 .obs-kind { justify-self: start; }
 .obs-val { font-family: var(--f-num); font-size: 11px; color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -373,6 +390,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 </style>
 
 <canvas id="scene" aria-label="魚群シミュレーション"></canvas>
+<div class="beckon off" id="beckon" hidden></div>
 <div class="vignette" aria-hidden="true"></div>
 
 <header class="top">
@@ -564,6 +582,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     <details class="hist">
       <summary>更新履歴</summary>
       <p class="ver">
+      v0.21（2026-11-02）ムクドリ：電線をなめらかに・押した電線や木が光る・空の長押しで呼び寄せ<br>
       v0.20（2026-11-02）ムクドリ：時間の流れ（日没・街の灯り・ねぐら入り・夕方からやり直し。成長モードのとき）<br>
       v0.19（2026-11-01）ムクドリ：止まり木の降り方を自然に（上空を回り、決断が広がり、空きに止まる）<br>
       v0.18（2026-11-01）ムクドリ：夕方の空を明るく<br>
@@ -588,6 +607,6 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </details>
     <div class="btn-row"><button class="chip" id="btnDevHide">裏モードを閉じる</button></div>
   </section>
-  <p class="ver" id="ver"><b>FLOCK v0.20</b> TOUCH &amp; AVOID<br>
+  <p class="ver" id="ver"><b>FLOCK v0.21</b> TOUCH &amp; AVOID<br>
   個体は人工モデルで、実際の魚や鳥の生態を厳密に再現したものではありません。</p>
 </section>

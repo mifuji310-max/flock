@@ -300,6 +300,30 @@ function wireSite(e) {   // 地上約10 m、長さ40 m、たるんだ3本の電�
   e.reset(9);
   check('S05 やり直し 12羽から始まり、ねぐらの状態は消える', e.n === 12 && e.roostedN === 0 && !e.site, `羽数=${e.n}`);
 }
+{   // S14 呼び寄せ（設計書 §16.15）：長押しした場所の上空へ群れが集まって回り、離すと自由に戻る
+  const e = new FlockEngine({ species: 'starling', seed: 6, capacity: 2000, initial: 300 });
+  run(e, 8);
+  const bx = -30, by = 0, bz = 20;
+  e.setBeacon(bx, by, bz);
+  let t = 0, ang = 0, prevA = null, near = 0, nearN = 0, nan = false;
+  run(e, 30, () => {
+    t += DT;
+    const c = e.centroid, a = Math.atan2(c[2] - bz, c[0] - bx);
+    if (t > 15) {
+      if (prevA !== null) { let d = a - prevA; if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; ang += d; }
+      prevA = a;
+      near += Math.hypot(c[0] - bx, c[2] - bz); nearN++;
+    }
+  });
+  const meanD = near / nearN;
+  for (let i = 0; i < e.n; i++) if (isNaN(e.px[i])) nan = true;
+  check('S14 呼び寄せ 群れが呼んだ場所の上空に集まる', meanD < e.params.beaconR + 10, `中心までの平均距離=${meanD.toFixed(1)} m`);
+  check('S14 呼び寄せ そのまわりを回る', Math.abs(ang) > 1.5, `15秒で回った角度=${(ang * 180 / Math.PI).toFixed(0)}°`);
+  check('S14 呼び寄せ 群れは1つのまま', e.stats.components <= 2 && !nan, `群れの数=${e.stats.components}`);
+  e.endBeacon();
+  run(e, 3);
+  check('S14 呼び寄せ 指を離すと消える', e.beacon === null, `beacon=${JSON.stringify(e.beacon)}`);
+}
 // 種類の切り替え：ムクドリ → イワシに戻すと、イワシのパラメータで最初からやり直す
 {
   const e = starling(300, 2);

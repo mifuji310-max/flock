@@ -1,6 +1,6 @@
 # CLAUDE.md — FLOCK の作業ルール
 
-最初に `docs/FLOCK_引き継ぎ書_v1.0.md` を読むこと。仕様の基準は `docs/FLOCK_設計書_v0.8.md`。
+最初に `docs/FLOCK_引き継ぎ書_v1.0.md` を読むこと。仕様の基準は `docs/FLOCK_設計書_v0.9.md`。
 
 ## 基本
 

@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK starling view v0.20（設計書 v0.8 §16）
+ * FLOCK starling view v0.21（設計書 v0.9 §16）
+ *   v0.21: 電線をなめらかな帯で描く（カクカクしない）。タップできる電線・木を押している間だけ光らせる。最初に一度きらめく
  *   v0.20: 時間の流れ（空が暮れて夜になる・星・かすみと街の暗さ）。ねぐらの木に入った鳥は描かない
  *   v0.19: 止まり木は席を作らず、電線の形と木の中の空き場所をエンジンへ渡す
  *   v0.18: 夕方の空・雲・かすみ・地面を明るく
@@ -140,20 +141,29 @@
     group.add(city);
 
     /* ---------------- 街路樹（ねぐら）・電柱と電線・街灯 ---------------- */
+    // v0.21 タップできる場所の光：押している電線の区間（wire）・木（tree）と、その明るさ。最初のきらめき（shP：左→右の位置、shA：強さ）
+    var hiU = { wire: { value: -9 }, wireA: { value: 0 }, tree: { value: -9 }, treeA: { value: 0 }, shP: { value: -1 }, shA: { value: 0 } };
     var TREES = [];
     var trees = (function () {
-      var r = makeRng(77), geos = [], ico = new THREE.IcosahedronGeometry(1, 1);
+      var r = makeRng(77), geos = [], ico = new THREE.IcosahedronGeometry(1, 1), treeNo = 0;
+      function tag(g, nrm) {   // v0.21 木の番号と、ふちを光らせるための外向き（幹は 0）
+        var c = g.attributes.position.count, id = new Float32Array(c).fill(treeNo);
+        g.setAttribute('aTree', new THREE.BufferAttribute(id, 1));
+        g.setAttribute('aN', new THREE.BufferAttribute(nrm || new Float32Array(c * 3), 3));
+      }
       function addCrown(x, y, z, rx, ry) {
-        var g = ico.clone(), p = g.attributes.position;
+        var g = ico.clone(), p = g.attributes.position, nrm = new Float32Array(p.count * 3);
         var sd = r() * 100;
         for (var i = 0; i < p.count; i++) {   // でこぼこさせて自然な樹冠に（同じ頂点は同じだけ動かし、割れ目を作らない）
           var ux = p.getX(i), uy = p.getY(i), uz = p.getZ(i), hh = Math.sin(ux * 12.9898 + uy * 78.233 + uz * 37.719 + sd) * 43758.5453;
           var k = 1 + ((hh - Math.floor(hh)) - 0.5) * 0.22;
+          var nx = ux / rx, ny = uy / ry, nz = uz / rx, nl = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+          nrm[i * 3] = nx / nl; nrm[i * 3 + 1] = ny / nl; nrm[i * 3 + 2] = nz / nl;
           p.setXYZ(i, x + p.getX(i) * rx * k, y + p.getY(i) * ry * k, z + p.getZ(i) * rx * k);
         }
-        geos.push(g);
+        tag(g, nrm); geos.push(g);
       }
-      function addTrunk(x, z, h) { var g = new THREE.CylinderGeometry(0.18, 0.28, h, 5); g.translate(x, GY + h / 2, z); geos.push(g); }
+      function addTrunk(x, z, h) { var g = new THREE.CylinderGeometry(0.18, 0.28, h, 5); g.translate(x, GY + h / 2, z); tag(g, null); geos.push(g); }
       // 駅前広場の2列の並木（ケヤキのようにこんもり）
       for (var row = 0; row < 2; row++) for (var k = 0; k < 8; k++) {
         var x = -78 + k * 22 + (r() - 0.5) * 5 + row * 11, z = 18 - row * 20 + (r() - 0.5) * 4;
@@ -163,14 +173,29 @@
         addCrown(x + (r() - 0.5) * cr, GY + h * 0.85, z + (r() - 0.5) * cr, cr * 0.7, cr * 0.55);
         addCrown(x + (r() - 0.5) * cr * 1.2, GY + h * 0.6, z + (r() - 0.5) * cr, cr * 0.75, cr * 0.5);
         TREES.push({ x: x, y: GY + h * 0.75, z: z, r: cr });
+        treeNo++;
       }
-      var pos = [];
-      geos.forEach(function (g) { var ng = g.index ? g.toNonIndexed() : g, a = ng.attributes.position.array; for (var i = 0; i < a.length; i++) pos.push(a[i]); });
+      var pos = [], an = [], at = [];
+      geos.forEach(function (g) {
+        var ng = g.index ? g.toNonIndexed() : g, a = ng.attributes.position.array, b = ng.attributes.aN.array, c = ng.attributes.aTree.array, i;
+        for (i = 0; i < a.length; i++) { pos.push(a[i]); an.push(b[i]); }
+        for (i = 0; i < c.length; i++) at.push(c[i]);
+      });
       var mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      mg.setAttribute('aN', new THREE.Float32BufferAttribute(an, 3)); mg.setAttribute('aTree', new THREE.Float32BufferAttribute(at, 1));
       return new THREE.Mesh(mg, new THREE.ShaderMaterial({
-        fog: false, uniforms: { uHaze: hazeC, uDark: darkU },
-        vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
-        fragmentShader: HAZE_GLSL + 'varying vec3 vW; void main(){ gl_FragColor = vec4(haze(vec3(0.035, 0.04, 0.045), distance(vW, cameraPosition)), 1.0); }'
+        fog: false, uniforms: { uHaze: hazeC, uDark: darkU, uHiT: hiU.tree, uHiA: hiU.treeA, uShP: hiU.shP, uShA: hiU.shA },
+        vertexShader: 'attribute vec3 aN; attribute float aTree; varying vec3 vW; varying vec3 vN; varying float vT;' +
+          'void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = aN; vT = aTree; gl_Position = projectionMatrix * viewMatrix * w; }',
+        // v0.21 押している木（と最初のきらめき）は、樹冠のふちがうっすら光る
+        fragmentShader: HAZE_GLSL + 'uniform float uHiT; uniform float uHiA; uniform float uShP; uniform float uShA; varying vec3 vW; varying vec3 vN; varying float vT;' +
+          'void main(){ vec3 c = haze(vec3(0.035, 0.04, 0.045), distance(vW, cameraPosition));' +
+          '  float nl = length(vN);' +
+          '  if (nl > 0.1) {' +
+          '    float rim = pow(1.0 - abs(dot(vN / nl, normalize(cameraPosition - vW))), 4.0);' +
+          '    float hi = (abs(vT - uHiT) < 0.5 ? uHiA : 0.0) + uShA * exp(-(((vW.x + 90.0) / 190.0 - uShP) * 5.0) * (((vW.x + 90.0) / 190.0 - uShP) * 5.0));' +
+          '    c += vec3(1.0, 0.84, 0.6) * rim * hi * 0.55; }' +
+          '  gl_FragColor = vec4(c, 1.0); }'
       }));
     })();
     group.add(trees);
@@ -182,19 +207,70 @@
       var a = POLES[k], b = POLES[k + 1], ox = (w - 1) * 1.0, hy = GY + 10.6 + (w === 1 ? 0.6 : 0);
       return [a[0] + ox + (b[0] - a[0]) * t, hy - 4 * t * (1 - t) * 1.3, a[1] + (b[1] - a[1]) * t];
     }
+    /* v0.21 電線は1ピクセルの線ではなく、縁をぼかした細い帯で描く（斜めでも階段状にならない）。
+     *   太さは実際の太さ（電線 3.5 cm・電柱 26 cm）を画面に写した幅。細すぎるときは最低の幅で、少し薄く描く */
+    var wireU = { uRes: { value: new THREE.Vector2(1, 1) }, uPR: { value: 1 }, uHiK: hiU.wire, uHiA: hiU.wireA, uShP: hiU.shP, uShA: hiU.shA };
     var wires = (function () {
-      var pts = [];
-      function line(a, b) { pts.push(a[0], a[1], a[2], b[0], b[1], b[2]); }
+      var pos = [], dir = [], side = [], ww = [], span = [], idx = [];
+      function strip(pts, w, k) {
+        var base = pos.length / 3;
+        for (var i = 0; i < pts.length; i++) {
+          var a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+          var dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], l = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+          for (var sd = -1; sd <= 1; sd += 2) { pos.push(pts[i][0], pts[i][1], pts[i][2]); dir.push(dx / l, dy / l, dz / l); side.push(sd); ww.push(w); span.push(k); }
+          if (i > 0) { var o = base + (i - 1) * 2; idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2); }
+        }
+      }
       POLES.forEach(function (p) {
-        line([p[0], GY, p[1]], [p[0], GY + 11.5, p[1]]);
-        line([p[0] - 1.2, GY + 10.6, p[1]], [p[0] + 1.2, GY + 10.6, p[1]]);   // 腕木
+        strip([[p[0], GY, p[1]], [p[0], GY + 11.5, p[1]]], 0.26, -1);
+        strip([[p[0] - 1.2, GY + 10.6, p[1]], [p[0] + 1.2, GY + 10.6, p[1]]], 0.12, -1);   // 腕木
       });
       for (var k = 0; k < POLES.length - 1; k++) for (var w = 0; w < 3; w++) {
-        var N = 16;
-        for (var s = 0; s < N; s++) line(wirePt(k, w, s / N), wirePt(k, w, (s + 1) / N));
+        var pts = [], N = 64;
+        for (var q = 0; q <= N; q++) pts.push(wirePt(k, w, q / N));
+        strip(pts, 0.035, k);
       }
-      var g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-      return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x0c0a10, fog: false }));
+      var g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('aDir', new THREE.Float32BufferAttribute(dir, 3));
+      g.setAttribute('aSide', new THREE.Float32BufferAttribute(side, 1));
+      g.setAttribute('aW', new THREE.Float32BufferAttribute(ww, 1));
+      g.setAttribute('aSpan', new THREE.Float32BufferAttribute(span, 1));
+      g.setIndex(idx);
+      var mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
+        fog: false, transparent: true, depthWrite: false, side: THREE.DoubleSide, uniforms: wireU,   // 帯の向きで裏表が変わるので両面
+        vertexShader:
+          'attribute vec3 aDir; attribute float aSide; attribute float aW; attribute float aSpan;' +
+          'uniform vec2 uRes; uniform float uPR; uniform float uHiK; uniform float uHiA; uniform float uShP; uniform float uShA;' +
+          'varying float vS; varying float vHw; varying float vA; varying float vHi;' +
+          'void main(){' +
+          '  vec4 w = modelMatrix * vec4(position, 1.0);' +
+          '  vec4 c0 = projectionMatrix * viewMatrix * w, c1 = projectionMatrix * viewMatrix * vec4(w.xyz + aDir * 0.5, 1.0);' +
+          '  vec2 dd = (c1.xy / c1.w - c0.xy / c0.w) * uRes; float dl = length(dd);' +
+          '  vec2 nrm = dl > 1e-5 ? vec2(-dd.y, dd.x) / dl : vec2(0.0, 1.0);' +
+          '  float px = aW * projectionMatrix[1][1] * uRes.y * 0.5 / max(c0.w, 1e-3);' +   // 実際の太さを画面に写した幅（CSS px）
+          '  float hi = 0.0;' +
+          '  if (aSpan > -0.5) hi = max(abs(aSpan - uHiK) < 0.5 ? uHiA : 0.0, uShA * exp(-(((w.x + 90.0) / 190.0 - uShP) * 5.0) * (((w.x + 90.0) / 190.0 - uShP) * 5.0)));' +
+          '  float wd = max(px, 0.8);' +
+          '  vA = clamp(px / 0.8, 0.55, 1.0); vHw = wd * 0.5; vHi = hi;' +
+          '  float hw = vHw + 1.5 / uPR + hi * 3.0;' +
+          '  vS = aSide * hw;' +
+          '  c0.xy += nrm * aSide * hw / (uRes * 0.5) * c0.w;' +
+          '  gl_Position = c0; }',
+        fragmentShader:
+          'uniform float uPR; varying float vS; varying float vHw; varying float vA; varying float vHi;' +
+          'void main(){' +
+          '  float e = abs(vS);' +
+          '  float core = clamp((vHw - e) * uPR + 0.5, 0.0, 1.0) * vA;' +
+          '  float halo = vHi * (1.0 - smoothstep(vHw, vHw + 3.0, e)) * 0.45;' +
+          '  vec3 glow = vec3(1.0, 0.84, 0.6), base = mix(vec3(0.047, 0.039, 0.063), glow, vHi * 0.8);' +
+          '  float a = core + halo * (1.0 - core);' +
+          '  if (a < 0.003) discard;' +
+          '  gl_FragColor = vec4((base * core + glow * halo * (1.0 - core)) / a, a); }'
+      }));
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 1;
+      return mesh;
     })();
     group.add(wires);
 
@@ -355,7 +431,33 @@
     var glideSeed = new Float32Array(cap);
     for (var gi = 0; gi < cap; gi++) glideSeed[gi] = Math.random() * 100;
     var camP = new THREE.Vector3();
+    // v0.21 光の状態：押している所（hover）、止まり木に決まった所（flash：1秒ほど光ってから消える）、最初のきらめき
+    var hi = { kind: null, k: -1, a: 0, hold: 0, sh: -1, last: 0 };
+    function updateHi(camera, viewH) {
+      var now = performance.now(), dt = hi.last ? Math.min(0.1, (now - hi.last) / 1000) : 0; hi.last = now;
+      var want = hi.kind ? 1 : 0;
+      if (hi.hold > 0) { hi.hold -= dt; want = 1; if (hi.hold <= 0) { hi.kind = hi.kind === 'flash' ? null : hi.kind; } }
+      hi.a += (want * 0.85 - hi.a) * Math.min(1, dt * (want ? 14 : 4));
+      hiU.wireA.value = hi.cur && hi.cur.kind === 'wire' ? hi.a : 0; hiU.wire.value = hi.cur && hi.cur.kind === 'wire' ? hi.cur.k : -9;
+      hiU.treeA.value = hi.cur && hi.cur.kind === 'tree' ? hi.a : 0; hiU.tree.value = hi.cur && hi.cur.kind === 'tree' ? hi.cur.k : -9;
+      if (hi.a < 0.005 && !want) hi.cur = null;
+      if (hi.sh >= 0) {   // 左から右へ、2.4 秒かけて光がなでる
+        hi.sh += dt;
+        var u = hi.sh / 2.4;
+        hiU.shP.value = -0.25 + 1.5 * u; hiU.shA.value = 0.75 * Math.sin(Math.PI * Math.min(1, u));
+        if (u >= 1) { hi.sh = -1; hiU.shA.value = 0; }
+      }
+      wireU.uRes.value.set(Math.max(1, viewH * camera.aspect), Math.max(1, viewH));
+    }
+    function setHover(t) {   // t = { kind: 'wire' | 'tree', k } または null
+      if (hi.hold > 0) return;
+      if (t) { if (!hi.cur || hi.cur.kind !== t.kind || hi.cur.k !== t.k) { hi.cur = { kind: t.kind, k: t.k }; if (hi.a > 0.3) hi.a = 0.3; } hi.kind = 'hover'; }
+      else hi.kind = null;
+    }
+    function flashSite(t) { if (!t) return; hi.cur = { kind: t.kind, k: t.k }; hi.kind = 'flash'; hi.hold = 1.0; }
+
     function update(alpha, dt, camera, viewH, clock, lite) {
+      updateHi(camera, viewH);
       var n = engine.n, m = birds.instanceMatrix.array, P = engine.params;
       var px = engine.px, py = engine.py, pz = engine.pz, ppx = engine.ppx, ppy = engine.ppy, ppz = engine.ppz;
       var vx = engine.vx, vy = engine.vy, vz = engine.vz, fl = flapAttr.array, am = ampAttr.array, fo = foldAttr.array, pst = engine.pst;
@@ -454,7 +556,7 @@
       return Math.hypot(px_ - a[0] - dx * t, py_ - a[1] - dy * t);
     }
     // 画面の点 (sx, sy) が電線（24 px 以内）か木（樹冠の中か 12 px 以内）に当たれば、その席の一覧を返す。当たらなければ null（＝空）
-    function pickPerch(sx, sy, camera, rect) {
+    function pickTarget(sx, sy, camera, rect) {   // v0.21 当たった電線の区間・木の番号だけを返す（押している間の光に使う）
       var best = null, bd = 1e9;
       for (var k = 0; k < POLES.length - 1; k++) for (var w = 0; w < 3; w++) {
         var prev = null;
@@ -472,19 +574,27 @@
         var dd = Math.max(0, Math.hypot(sx - c[0], sy - c[1]) - rpx);
         if (dd < 12 && dd < bd) { bd = dd; best = { kind: 'tree', k: t }; }
       }
+      return best;
+    }
+    function pickPerch(sx, sy, camera, rect) { return perchFor(pickTarget(sx, sy, camera, rect)); }
+    function perchFor(best) {   // v0.21 当たった電線の区間・木から、エンジンへ渡す止まり木を作る
       if (!best) return null;
       // v0.19 エンジンへ渡す止まり木（席は先に決めない。電線は形だけ、木は中の空き場所の一覧）
       if (best.kind === 'wire') {
         var ws = [];
         for (var w2 = 0; w2 < 3; w2++) { var pts = []; for (var s2 = 0; s2 <= 32; s2++) pts.push(wirePt(best.k, w2, s2 / 32)); ws.push(pts); }
-        return { kind: 'wire', key: 'w' + best.k, wires: ws };
+        return { kind: 'wire', key: 'w' + best.k, k: best.k, wires: ws };
       }
       var T2 = TREES[best.k];
-      return { kind: 'tree', key: 't' + best.k, x: T2.x, y: T2.y, z: T2.z, r: T2.r, seats: treeSeatCache[best.k] || (treeSeatCache[best.k] = treeSeats(best.k)) };
+      return { kind: 'tree', key: 't' + best.k, k: best.k, x: T2.x, y: T2.y, z: T2.z, r: T2.r, seats: treeSeatCache[best.k] || (treeSeatCache[best.k] = treeSeats(best.k)) };
     }
 
     return {
-      group: group, TREES: TREES, pickPerch: pickPerch,
+      group: group, TREES: TREES, pickPerch: pickPerch, pickTarget: pickTarget, perchFor: perchFor,
+      setHover: setHover, flashSite: flashSite,
+      shimmer: function () { hi.sh = 0; },                      // v0.21 最初のきらめき
+      setPR: function (v) { wireU.uPR.value = v; },            // 画面の細かさ（電線の縁のぼかし幅）
+      debugHi: function () { return { wire: hiU.wire.value, wireA: hiU.wireA.value, tree: hiU.tree.value, treeA: hiU.treeA.value, sh: hiU.shA.value }; },
       debugWirePoint: function (k, w, t) { return wirePt(k, w, t); },
       setVisible: function (v) { group.visible = v; if (!v) { falconApi.clear(); } },
       update: update, setTag: setTag, falcon: falconApi,
@@ -494,7 +604,7 @@
         darkU.value = v;
         hazeC.value.set(HAZE_DUSK[0] + (HAZE_NIGHT[0] - HAZE_DUSK[0]) * v, HAZE_DUSK[1] + (HAZE_NIGHT[1] - HAZE_DUSK[1]) * v, HAZE_DUSK[2] + (HAZE_NIGHT[2] - HAZE_DUSK[2]) * v);
       },
-      reset: function () { renderedN = 0; falconApi.clear(); treeSeatCache = {}; }
+      reset: function () { renderedN = 0; falconApi.clear(); treeSeatCache = {}; hi.kind = null; hi.hold = 0; }
     };
   };
 })(typeof window !== 'undefined' ? window : this);

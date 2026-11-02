@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK simulation engine  v0.11
+ * FLOCK simulation engine  v0.12
+ *   v0.12 2026-11-02 呼び寄せ：長押しした場所の上空へ群れが集まって回る（指を離すと自由に戻る）
  *   v0.11 2026-11-02 ねぐら入り：街路樹の上空を回り、降りる決断が広がって、渦を巻きながら木の中へ入る（見えなくなる）
  *   v0.10 2026-11-01 止まり木の降り方を改訂：上空を回る → 降りる決断が仲間へ広がる → 着いた所の空きに止まる（席を先に決めない）
  *   v0.9 2026-11-01 止まり木（ムクドリ）：席を割り当てて降りる・止まる・ハヤブサで一斉に飛び立つ
@@ -23,7 +24,7 @@
 (function (root) {
   'use strict';
 
-  var ENGINE_VERSION = '0.11';
+  var ENGINE_VERSION = '0.12';
 
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -107,6 +108,8 @@
     siteLife: 45, siteFails: 300,
     // v0.11 ねぐら入り（設計書 §16.7）：街路樹の上空を回り、降りる決断が広がって、渦を巻きながら木の中へ入る
     roostR: 28, roostDelay: 6, roostBase: 0.004, roostRamp: 0.0005, roostQuorum: 0.8, roostEnd: 68, roostIn: 1.2, swirl: 0.9,
+    // v0.12 呼び寄せ：回る半径（m）、強さ、効き始め・消えるまでの秒
+    beaconR: 16, beaconW: 1.3, beaconIn: 0.8, beaconOut: 1.5,
     growMax: 80,
     bounds: [60, 20, 60]
   });
@@ -175,6 +178,7 @@
     this._keys = new Int32Array(27);
     this._knD = new Float32Array(16); this._knJ = new Int32Array(16);   // 近い順の近傍（ムクドリ）
     this.predator = null;                // ハヤブサ { x, y, z, vx, vy, vz, R }（入力層が設定。いないときは null）
+    this.beacon = null;                  // v0.12 呼び寄せ { x, y, z, dir, on, s }（setBeacon / endBeacon で操作）
     // v0.9 止まり木：鳥ごとの状態 0=飛ぶ 1=席へ降りる 2=止まっている 3=飛び立ち待ち 4=ねぐらの木の中（見えない。v0.11）。席は perches の番号
     this.pst = new Uint8Array(C); this.pseat = new Int32Array(C); this.ptk = new Float32Array(C);
     this.rj = new Float32Array(C);       // 飛び立ってから群れへ戻るまでの残り時間（この間は目印の鳥を追う）
@@ -215,6 +219,7 @@
     this.obstacles.length = 0;
     this.foodN = 0; this.eaten = 0; this.feed.fill(0);
     this.pst.fill(0); this.rj.fill(0); this.cool.fill(0); this.perches = []; this.perchedN = 0; this.roostedN = 0; this.site = null;
+    this.beacon = null;
     this.analyze();
   };
 
@@ -267,6 +272,23 @@
     this.site = site;
     return site;
   };
+  /* ---------------- 呼び寄せ（v0.12 / 設計書 §16.15） ----------------
+   * 長押しした場所の上空を、空を飛んでいる群れが回る。止まっている鳥・降りている鳥・ねぐら入りには効かない。
+   * 回る向きは、群れが今飛んでいる向きに合わせる（急に向きを変えない） */
+  FlockEngine.prototype.setBeacon = function (x, y, z) {
+    var P = this.params, floor = P.groundY != null ? P.groundY + P.minAlt + 6 : -Infinity;
+    if (y < floor) y = floor;
+    var b = this.beacon;
+    if (!b) {
+      var lx = 0, lz = 0, mx = 0, mz = 0, vxs = 0, vzs = 0, k = 0;
+      for (var i = 0; i < this.n; i++) if (!this.pst[i]) { mx += this.px[i]; mz += this.pz[i]; vxs += this.vx[i]; vzs += this.vz[i]; k++; }
+      if (k) { mx /= k; mz /= k; lx = mx - x; lz = mz - z; }
+      var cr = lx * vzs - lz * vxs;   // 群れの中心が点のまわりをどちら向きに動いているか
+      b = this.beacon = { x: x, y: y, z: z, dir: cr > 0 ? -1 : 1, on: true, s: 0 };
+    }
+    b.x = x; b.y = y; b.z = z; b.on = true;
+  };
+  FlockEngine.prototype.endBeacon = function () { if (this.beacon) this.beacon.on = false; };
   FlockEngine.prototype.roosting = function () { return !!(this.site && this.site.kind === 'roost'); };
   // 電線 w の上で点 (x, y, z) に一番近い点の、電線に沿った距離 s と、その点
   FlockEngine.prototype._wireNearest = function (site, x, y, z, out) {
@@ -589,6 +611,14 @@
       else { floorF = Math.min(floorF, site.oy - 8); bMul = 0.15; }
     }
     var envK = P.envScale || 1, flatten = P.flatten || 0;
+    // v0.12 呼び寄せ：押している間は強くなり、離すと弱まって消える。ねぐら入りの間は効かない
+    var bc = this.beacon;
+    if (bc) {
+      bc.s = bc.on ? Math.min(1, bc.s + dt / P.beaconIn) : bc.s - dt / P.beaconOut;
+      if (bc.s <= 0) { this.beacon = bc = null; }
+      else if (site && site.active && site.kind === 'roost') bc = null;
+    }
+    var bcOn = !!(bc && bc.on);
 
     var pst = this.pst, rj = this.rj, perchedN = 0, roostedN = 0, scareP = false;
     var siteRR = siteOn && site.kind === 'roost' ? P.roostR : P.siteR;   // 回る半径（ねぐらは並木全体を回るので大きい）
@@ -709,7 +739,12 @@
         else if (kOut > 0) { var kw = (kOut > 1 ? 1 : kOut) * P.wCenter; Gx += kx / kl * kw; Gy += ky / kl * kw; Gz += kz / kl * kw; }
       }
       // v0.10 止まり木の呼びかけ中：上空を回り、降りると決める（降り始めた仲間が近くに多いほど決めやすい）
-      if (siteOn && flock[i] === 0 && !(this.rj[i] > 0)) {
+      if (bc && flock[i] === 0 && !(this.rj[i] > 0)) {   // v0.12 呼び寄せ：その上空を回る（止まり木の呼びかけより優先）
+        var bxx = bc.x - x, bzz = bc.z - z, bh = Math.sqrt(bxx * bxx + bzz * bzz) || 1, brd = clamp((bh - P.beaconR) / P.beaconR, -1, 1), bw = bc.s * bc.s * (3 - 2 * bc.s) * P.beaconW;
+        Gx += (bxx / bh * brd * 1.2 - bzz / bh * 0.9 * bc.dir) * bw; Gz += (bzz / bh * brd * 1.2 + bxx / bh * 0.9 * bc.dir) * bw;
+        Gy += clamp((bc.y - y) / 8, -1, 1) * 0.8 * bw;
+      }
+      if (siteOn && !(bcOn && site.kind !== 'roost') && flock[i] === 0 && !(this.rj[i] > 0)) {
         var ox_ = site.ox - x, oz_ = site.oz - z, oh = Math.sqrt(ox_ * ox_ + oz_ * oz_) || 1, rad = clamp((oh - siteRR) / siteRR, -1, 1);
         Gx += ox_ / oh * rad * 1.2 - oz_ / oh * 0.9 * site.dir; Gz += oz_ / oh * rad * 1.2 + ox_ / oh * 0.9 * site.dir;
         Gy += clamp((site.oy - y) / 8, -1, 1) * 1.0;

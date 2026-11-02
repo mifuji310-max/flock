@@ -158,11 +158,30 @@ async def main():
                 pt = await page.evaluate("""async () => { for (let w = 0; w < 100; w++) { for (let k=0;k<4;k++) for (const t of [0.2,0.35,0.5,0.65,0.8]) { const q=FLOCK.debugStar.debugWirePoint(k,1,t); const s=FLOCK.debugScreen(q[0],q[1],q[2]); if (s && s[0]>10 && s[0]<innerWidth-10 && s[1]>80 && s[1]<innerHeight-140 && FLOCK.debugPick(s[0],s[1])==='wire') return s; } await new Promise(r=>setTimeout(r,200)); } return null; }""")
                 check('止まり木：画面に電線が見えていて、電線と判定される', pt is not None)
                 if pt:
-                    n1 = await page.evaluate("""async ([x,y]) => { const cv=document.getElementById('scene'), e=FLOCK.debugEngine;
+                    # v0.21 押している間だけ電線が光り、止まり木に決まると少し光が残る
+                    r1 = await page.evaluate("""async ([x,y]) => { const cv=document.getElementById('scene'), e=FLOCK.debugEngine;
                       const ev=t=>cv.dispatchEvent(new PointerEvent(t,{pointerId:1,clientX:x,clientY:y,bubbles:true,pointerType:'mouse',button:0}));
-                      ev('pointerdown'); ev('pointerup'); await new Promise(r=>setTimeout(r,300));
-                      return e.site && e.site.active && e.site.kind === 'wire' ? 1 : 0; }""", pt)
-                    check('止まり木：電線をタップすると、群れが止まり木へ向かう（上空を回り始める）', n1 > 0)
+                      const h0 = FLOCK.debugHi();
+                      ev('pointerdown'); await new Promise(r=>setTimeout(r,350)); const h1 = FLOCK.debugHi();
+                      ev('pointerup'); await new Promise(r=>setTimeout(r,300)); const h2 = FLOCK.debugHi();
+                      await new Promise(r=>setTimeout(r,2200)); const h3 = FLOCK.debugHi();
+                      return { site: e.site && e.site.active && e.site.kind === 'wire' ? 1 : 0, h0, h1, h2, h3 }; }""", pt)
+                    check('止まり木：電線をタップすると、群れが止まり木へ向かう（上空を回り始める）', r1['site'] > 0)
+                    check('光（v0.21）：電線を押している間、その電線が光る', r1['h0']['wireA'] < 0.05 and r1['h1']['wireA'] > 0.4 and r1['h1']['wire'] >= 0, str(r1['h1']))
+                    check('光（v0.21）：止まり木に決まると少し光が残り、やがて消える', r1['h2']['wireA'] > 0.4 and r1['h3']['wireA'] < 0.05, f"{r1['h2']} → {r1['h3']}")
+                    # 空を押しても光らない。長押しで呼び寄せ（ハヤブサは出ない）、離すと消える
+                    sp = await page.evaluate("""(() => { for (let y = 90; y < innerHeight/2; y += 20) for (let x = 40; x < innerWidth-40; x += 30) if (FLOCK.debugPick(x,y)==='sky') return [x,y]; return null; })()""")
+                    r2 = await page.evaluate("""async ([x,y]) => { const cv=document.getElementById('scene');
+                      const ev=(t,dx)=>cv.dispatchEvent(new PointerEvent(t,{pointerId:2,clientX:x+(dx||0),clientY:y,bubbles:true,pointerType:'mouse',button:0}));
+                      ev('pointerdown'); await new Promise(r=>setTimeout(r,200)); const h = FLOCK.debugHi(), b0 = FLOCK.debugBeacon();
+                      await new Promise(r=>setTimeout(r,900)); const b1 = FLOCK.debugBeacon(), ring = !document.getElementById('beckon').hidden && !document.getElementById('beckon').classList.contains('off');
+                      ev('pointermove', 30); await new Promise(r=>setTimeout(r,100)); const b2 = FLOCK.debugBeacon();
+                      ev('pointerup', 30); await new Promise(r=>setTimeout(r,2500));
+                      return { h, b0, b1, b2, ring, falcon: FLOCK.debugStar.falcon.active(), b3: FLOCK.debugBeacon() }; }""", sp)
+                    check('光（v0.21）：空を押しても何も光らない', r2['h']['wireA'] < 0.05 and r2['h']['treeA'] < 0.05, str(r2['h']))
+                    check('呼び寄せ（v0.21）：空を長押しすると呼び寄せが始まり、指の位置に輪が出る', r2['b0'] is None and r2['b1'] and r2['b1']['on'] and r2['b1']['s'] > 0.3 and r2['ring'], f"{r2['b0']} → {r2['b1']} 輪={r2['ring']}")
+                    check('呼び寄せ（v0.21）：指を動かすと呼ぶ場所も動く', r2['b2'] and abs(r2['b2']['x'] - r2['b1']['x']) + abs(r2['b2']['z'] - r2['b1']['z']) > 0.5, f"{r2['b1']} → {r2['b2']}")
+                    check('呼び寄せ（v0.21）：離すとハヤブサは出ずに、呼び寄せが消える', not r2['falcon'] and r2['b3'] is None, f"ハヤブサ={r2['falcon']} {r2['b3']}")
                     sky = await page.evaluate("FLOCK.debugPick(innerWidth/2, 120)")
                     check('止まり木：空は空と判定される', sky == 'sky', sky)
                 # 切り替え：イワシに戻し、設定が保たれることを確かめる
