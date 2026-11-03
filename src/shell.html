@@ -1,10 +1,11 @@
 <title>FLOCK</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!--
-  FLOCK 群れシミュレータ  プロトタイプ v0.22「TOUCH & AVOID」
+  FLOCK 群れシミュレータ  プロトタイプ v0.23「TOUCH & AVOID」
   準拠：FLOCK 群れシミュレータ 開発設計書 v0.9（2026-11-02）
 
   更新履歴
+  v0.23 2026-11-03  イワシ：触れたときの当たり判定を見直し。群れの中心の奥行きに固定していたのをやめ、指の下に見えている魚の奥行きに合わせる（寄って見ていても反応する）。範囲は画面の上で同じ大きさに見えるようにした。
   v0.22 2026-11-02  ムクドリ：並木の奥を見通しよく。駅舎を13 mから7.5 mに低くし、遠くの低いビルを半分ほど間引いた（木が夕焼けの空を背に見える）。
   v0.21 2026-11-02  ムクドリ：タップできる場所と、呼び寄せ（設計書 v0.9 §16.15）。
                     ・電線を、縁をぼかした細い帯で描く（拡大しても斜めの線が階段状にならない。つなぎ目も細かく）
@@ -583,6 +584,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     <details class="hist">
       <summary>更新履歴</summary>
       <p class="ver">
+      v0.23（2026-11-03）イワシ：寄って見ていても、触れた魚がちゃんと逃げるように<br>
       v0.22（2026-11-02）ムクドリ：並木の奥の駅舎を低く、低いビルを間引いて木を見やすく<br>
       v0.21（2026-11-02）ムクドリ：電線をなめらかに・押した電線や木が光る・空の長押しで呼び寄せ<br>
       v0.20（2026-11-02）ムクドリ：時間の流れ（日没・街の灯り・ねぐら入り・夕方からやり直し。成長モードのとき）<br>
@@ -609,6 +611,6 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </details>
     <div class="btn-row"><button class="chip" id="btnDevHide">裏モードを閉じる</button></div>
   </section>
-  <p class="ver" id="ver"><b>FLOCK v0.22</b> TOUCH &amp; AVOID<br>
+  <p class="ver" id="ver"><b>FLOCK v0.23</b> TOUCH &amp; AVOID<br>
   個体は人工モデルで、実際の魚や鳥の生態を厳密に再現したものではありません。</p>
 </section>

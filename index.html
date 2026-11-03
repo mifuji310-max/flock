@@ -8,10 +8,11 @@
 <title>FLOCK</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!--
-  FLOCK 群れシミュレータ  プロトタイプ v0.22「TOUCH & AVOID」
+  FLOCK 群れシミュレータ  プロトタイプ v0.23「TOUCH & AVOID」
   準拠：FLOCK 群れシミュレータ 開発設計書 v0.9（2026-11-02）
 
   更新履歴
+  v0.23 2026-11-03  イワシ：触れたときの当たり判定を見直し。群れの中心の奥行きに固定していたのをやめ、指の下に見えている魚の奥行きに合わせる（寄って見ていても反応する）。範囲は画面の上で同じ大きさに見えるようにした。
   v0.22 2026-11-02  ムクドリ：並木の奥を見通しよく。駅舎を13 mから7.5 mに低くし、遠くの低いビルを半分ほど間引いた（木が夕焼けの空を背に見える）。
   v0.21 2026-11-02  ムクドリ：タップできる場所と、呼び寄せ（設計書 v0.9 §16.15）。
                     ・電線を、縁をぼかした細い帯で描く（拡大しても斜めの線が階段状にならない。つなぎ目も細かく）
@@ -592,6 +593,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     <details class="hist">
       <summary>更新履歴</summary>
       <p class="ver">
+      v0.23（2026-11-03）イワシ：寄って見ていても、触れた魚がちゃんと逃げるように<br>
       v0.22（2026-11-02）ムクドリ：並木の奥の駅舎を低く、低いビルを間引いて木を見やすく<br>
       v0.21（2026-11-02）ムクドリ：電線をなめらかに・押した電線や木が光る・空の長押しで呼び寄せ<br>
       v0.20（2026-11-02）ムクドリ：時間の流れ（日没・街の灯り・ねぐら入り・夕方からやり直し。成長モードのとき）<br>
@@ -618,7 +620,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </details>
     <div class="btn-row"><button class="chip" id="btnDevHide">裏モードを閉じる</button></div>
   </section>
-  <p class="ver" id="ver"><b>FLOCK v0.22</b> TOUCH &amp; AVOID<br>
+  <p class="ver" id="ver"><b>FLOCK v0.23</b> TOUCH &amp; AVOID<br>
   個体は人工モデルで、実際の魚や鳥の生態を厳密に再現したものではありません。</p>
 </section>
 
@@ -1757,7 +1759,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 </script>
 <script>
 /* =====================================================================
- * FLOCK starling view v0.22（設計書 v0.9 §16）
+ * FLOCK starling view v0.23（設計書 v0.9 §16）
  *   v0.22: 駅舎を低くし、遠くの低いビルを間引いた（並木が空を背に見える）
  *   v0.21: 電線をなめらかな帯で描く（カクカクしない）。タップできる電線・木を押している間だけ光らせる。最初に一度きらめく
  *   v0.20: 時間の流れ（空が暮れて夜になる・星・かすみと街の暗さ）。ねぐらの木に入った鳥は描かない
@@ -2373,7 +2375,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 </script>
 <script>
 /* =====================================================================
- * FLOCK app v0.22（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.23（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
  *   v0.21: 押している電線・木を光らせる／最初のきらめき／空の長押しで呼び寄せ
  *   v0.20: ムクドリの時間の流れ（成長モードのとき：日没 → 灯り → ねぐら入り → 夕方からやり直し）
  *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作
@@ -3019,6 +3021,36 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
   var repList = [rep], emptyList = [];
 
   function touchRadius() { var v = viewSizeAtTarget(); return 0.15 * Math.min(v.w, v.h) * touchScale; }
+  /* v0.23 触れる奥行き：指の下に見えている魚の奥行きに合わせる（寄って見ていても、見えている魚に届く）。
+   * 群れの中心の面に固定していたため、寄ると手前・奥の魚が範囲の外になっていた。
+   * 指から約44px以内に見える魚の奥行きの中央値を使う。見当たらなければ群れの中心の奥行き。
+   * 範囲の大きさは画面の上で同じに見えるよう、奥行きに比例させる */
+  var touchDir = new THREE.Vector3(), pickT = [];
+  function touchPoint(sx, sy, fresh, out) {
+    var ray = setRay(sx, sy), o = ray.origin, d = ray.direction;
+    touchDir.copy(d);
+    var k = 44 * 2 * Math.tan(camera.fov * Math.PI / 360) / Math.max(1, H), k2 = k * k, n = 0;
+    pickT.length = 0;
+    for (var i = 0; i < engine.n; i++) {
+      var vx = engine.px[i] - o.x, vy = engine.py[i] - o.y, vz = engine.pz[i] - o.z, t = vx * d.x + vy * d.y + vz * d.z;
+      if (t < 0.4) continue;
+      var l2 = vx * vx + vy * vy + vz * vz - t * t;
+      if (l2 < t * t * k2) pickT[n++] = t;
+    }
+    var tc = (camTarget.x - o.x) * camFwd.x + (camTarget.y - o.y) * camFwd.y + (camTarget.z - o.z) * camFwd.z;
+    var cosA = d.x * camFwd.x + d.y * camFwd.y + d.z * camFwd.z, want = tc / Math.max(0.2, cosA), span = 0;
+    if (n) {   // 手前の魚（下から1割）から真ん中あたり（6割）までを包む
+      pickT.sort(function (a, b) { return a - b; });
+      var lo = pickT[Math.floor(n * 0.1)], hi = pickT[Math.floor(n * 0.6)];
+      want = (lo + hi) / 2; span = (hi - lo) / 2;
+    }
+    var f = fresh || !(touch.dist > 0);
+    touch.dist = f ? want : touch.dist + (want - touch.dist) * 0.25;
+    touch.span = f ? span : touch.span + (span - touch.span) * 0.25;
+    out.copy(d).multiplyScalar(touch.dist).add(o);
+    return true;
+  }
+  function touchScaleAt() { return Math.max(0.15, touch.dist / Math.max(0.5, camDist)); }   // 群れの中心の奥行きを1とした比
 
   var fal = { sx: 0, sy: 0, x0: 0, y0: 0, chasing: false, lp: 0, beckon: false };   // v0.15 ハヤブサの指（v0.21 長押しの呼び寄せ）
   /* v0.21 呼び寄せ：空を長押し（約0.45秒）すると、群れがその上空を回る。指を動かすと呼ぶ場所も動く。離すと自由に戻る */
@@ -3053,10 +3085,10 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     var held = touch.down && gesture === 'touch';
     if (held || touch.minHold > 0) {
       touch.minHold -= dt;
-      if (screenToPlane(touch.sx, touch.sy, camTarget, tmpV)) {
+      if (touchPoint(touch.sx, touch.sy, !touch.init, tmpV)) {
         if (!touch.init) { touch.prev.copy(tmpV); touch.init = true; } else touch.prev.copy(touch.cur);
         touch.cur.copy(tmpV);
-        if (touch.fresh) { touch.fresh = false; playRustle(countNear(touch.cur, touchRadius() * 1.2), touch.sx); }
+        if (touch.fresh) { touch.fresh = false; playRustle(countNear(touch.cur, touchRadius() * touchScaleAt() * 1.2), touch.sx); }
       }
       touch.s += (1 - touch.s) * Math.min(1, dt * 20);
       touch.grow = Math.min(1, touch.grow + dt / 0.6);
@@ -3065,11 +3097,11 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       touch.prev.copy(touch.cur);
     }
     if (!touch.init || touch.s < 0.002) { engine.repulsors = emptyList; touchViz.visible = false; return; }
-    var g = touch.grow, R = touchRadius() * (0.7 + 0.3 * g * g * (3 - 2 * g));
+    var g = touch.grow, R = touchRadius() * touchScaleAt() * (0.7 + 0.3 * g * g * (3 - 2 * g));
     rep.ax = touch.prev.x; rep.ay = touch.prev.y; rep.az = touch.prev.z;   // 指の軌跡を線分で補間
     rep.bx = touch.cur.x; rep.by = touch.cur.y; rep.bz = touch.cur.z;
-    rep.fx = camFwd.x; rep.fy = camFwd.y; rep.fz = camFwd.z;
-    rep.R = R; rep.depth = R * 1.6; rep.s = touch.s;
+    rep.fx = touchDir.x; rep.fy = touchDir.y; rep.fz = touchDir.z;   // v0.23 奥行きの軸は指の視線に合わせる
+    rep.R = R; rep.depth = Math.min(R * 5, Math.max(R * 2.4, touch.span * 1.3)); rep.s = touch.s;   // v0.23 奥行きの厚み 1.6 → 2.4 以上（指の下の魚の厚みに合わせる）
     engine.repulsors = repList;
     if (showRadius) {
       touchViz.visible = true;
@@ -3204,6 +3236,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       touch.fresh = true; touch.nx = x; touch.ny = y; touch.nt = performance.now(); touch.minHold = TAP_MIN;
       playTouch(x, y, false);
       if (touch.s < 0.05) touch.init = false;
+      touch.dist = 0;   // v0.23 新しく触れたら、その場所の魚の奥行きで決め直す
     } else if (mode === 'obstacle') {
       gesture = 'obstacle'; made.obs = obstacleDown(x, y) || null;
     }

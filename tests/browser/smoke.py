@@ -26,6 +26,29 @@ OUT = ROOT / 'tests' / 'browser' / 'out'
 THREE = ROOT / 'node_modules' / 'three' / 'build' / 'three.min.js'
 
 # 指の操作を合成して実行し、結果を返す（pointerType: 'touch'）
+# v0.23 寄った画面で、画面に見えている魚を押し、指から30px以内に見える魚が触れた範囲に入るかを数える
+TOUCH_HIT = r"""async (z) => {
+  FLOCK.debugView(0, 0, z); await new Promise(r => setTimeout(r, 3500));
+  const e = FLOCK.debugEngine, cv = document.getElementById('scene');
+  let n = 0, inn = 0;
+  for (let k = 0; k < 20; k++) {
+    let p = null;
+    for (let t = 0; t < 300 && !p; t++) { const j = (Math.random() * e.n) | 0, q = FLOCK.debugScreen(e.px[j], e.py[j], e.pz[j]);
+      if (q && q[0] > 30 && q[0] < innerWidth - 30 && q[1] > 100 && q[1] < innerHeight - 150) p = q; }
+    if (!p) continue;
+    const ev = t => cv.dispatchEvent(new PointerEvent(t, { pointerId: 1, clientX: p[0], clientY: p[1], bubbles: true, pointerType: 'mouse', button: 0 }));
+    ev('pointerdown'); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const rp = e.repulsors[0];
+    if (rp) for (let j = 0; j < e.n; j++) { const q = FLOCK.debugScreen(e.px[j], e.py[j], e.pz[j]);
+      if (!q || Math.hypot(q[0] - p[0], q[1] - p[1]) > 30) continue; n++;
+      const dx = e.px[j] - rp.bx, dy = e.py[j] - rp.by, dz = e.pz[j] - rp.bz, dzz = dx * rp.fx + dy * rp.fy + dz * rp.fz;
+      const lx = dx - dzz * rp.fx, ly = dy - dzz * rp.fy, lz = dz - dzz * rp.fz;
+      if (lx * lx + ly * ly + lz * lz + (dzz * rp.R / rp.depth) ** 2 < rp.R * rp.R) inn++; }
+    ev('pointerup'); await new Promise(r => setTimeout(r, 400));
+  }
+  return { n, in: inn };
+}"""
+
 GESTURE = r"""async ([kind, delay]) => {
   const cv = document.getElementById('scene'), e = FLOCK.debugEngine, W = innerWidth, H = innerHeight;
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -106,6 +129,10 @@ async def main():
                 check('一瞬のタップで刺激が発生する', r['touched'])
                 r = await page.evaluate(GESTURE, ['pinch', 60])
                 check('2本指（触れる）で刺激が発生しない', not r['touched'])
+                # v0.23 寄って見ていても、指の下に見えている魚に触れた範囲が届く
+                rz = await page.evaluate(TOUCH_HIT, 0.45)
+                await page.evaluate("FLOCK.debugView(0, 0, 1)")
+                check('当たり判定（v0.23）：寄った画面でも、指の下に見える魚の半分以上に届く', rz['n'] >= 10 and rz['in'] / rz['n'] > 0.5, f"{rz['in']}/{rz['n']}")
                 await page.click('#touchTool button[data-t=feed]')
                 r = await page.evaluate(GESTURE, ['pinch', 250])
                 # 取り消しまでの間に魚が食べた粒は戻せないので、残っている粒だけを見る
