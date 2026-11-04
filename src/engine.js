@@ -1,5 +1,6 @@
 /* =====================================================================
- * FLOCK simulation engine  v0.12
+ * FLOCK simulation engine  v0.13
+ *   v0.13 2026-11-04 障害物の中（すぐそば）に入った餌粒は、魚が数秒狙ったあと諦める（届かない粒のまわりを回り続けない）
  *   v0.12 2026-11-02 呼び寄せ：長押しした場所の上空へ群れが集まって回る（指を離すと自由に戻る）
  *   v0.11 2026-11-02 ねぐら入り：街路樹の上空を回り、降りる決断が広がって、渦を巻きながら木の中へ入る（見えなくなる）
  *   v0.10 2026-11-01 止まり木の降り方を改訂：上空を回る → 降りる決断が仲間へ広がる → 着いた所の空きに止まる（席を先に決めない）
@@ -24,7 +25,7 @@
 (function (root) {
   'use strict';
 
-  var ENGINE_VERSION = '0.12';
+  var ENGINE_VERSION = '0.13';
 
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -69,6 +70,7 @@
     speedMatch: 0.30,                    // 近傍速度への同調
     obsMargin: 0.38, lookAhead: 1.15,    // 拡張半径の余裕 / 予測時間 (s)
     wFood: 3.2, foodRange: 9, eatDist: 0.2, biteProb: 0.25, sinkSpeed: 0.2, feedDecay: 0.32,   // 餌やり（biteProb：届いても毎回は食べられない）
+    foodGiveUp: 3.5,   // v0.13 障害物の中の餌粒を、魚が諦めるまでの時間 (s)
     foodMinH: 1.0, floorGuard: 0.8,   // v0.6: 餌をまく最低の高さ（海底から）、魚が海底を避け始める高さ
     obsMaxSpeed: 8.0, obsRadiusRate: 2.5,
     bounds: [16, 8, 14]                  // ソフト境界（楕円体の半径）
@@ -162,7 +164,7 @@
     var FC = this.FOOD_CAP = 260;
     this.foodX = new Float32Array(FC); this.foodY = new Float32Array(FC); this.foodZ = new Float32Array(FC);
     this.foodVX = new Float32Array(FC); this.foodVY = new Float32Array(FC); this.foodVZ = new Float32Array(FC);
-    this.foodAge = new Float32Array(FC); this.foodPh = new Float32Array(FC); this.foodEaten = new Uint8Array(FC);
+    this.foodAge = new Float32Array(FC); this.foodPh = new Float32Array(FC); this.foodEaten = new Uint8Array(FC); this.foodBlk = new Float32Array(FC);
     this.foodN = 0; this.eaten = 0;
     this.resp = new Float32Array(C);     // responseBias
     this.speedBias = new Float32Array(C);
@@ -457,7 +459,7 @@
       var p = this._randInBall(spread), f = this.foodN++;
       this.foodX[f] = x + p[0]; this.foodY[f] = y + p[1] * 0.6; this.foodZ[f] = z + p[2];
       this.foodVX[f] = p[0] * 1.2; this.foodVY[f] = 0.15 + r() * 0.2; this.foodVZ[f] = p[2] * 1.2;   // ぱっと広がってから沈む
-      this.foodAge[f] = 0; this.foodPh[f] = r() * 6.283; this.foodEaten[f] = 0;
+      this.foodAge[f] = 0; this.foodPh[f] = r() * 6.283; this.foodEaten[f] = 0; this.foodBlk[f] = 0;
     }
   };
   FlockEngine.prototype._updateFood = function (dt) {
@@ -473,12 +475,31 @@
       this.foodZ[f] += (this.foodVZ[f] + Math.cos(t * 1.1 + w * 1.7) * 0.06) * dt;
       if (this.foodY[f] < floor) this.foodY[f] = floor;
     }
+    this._blockFood(dt);
   };
+  /* v0.13 障害物の中（魚がよける範囲の内側）にある餌粒は、届かない。そこにいる時間を数え、
+   * foodGiveUp 秒を過ぎたら魚は狙わない（外へ出たら数え直し） */
+  FlockEngine.prototype._blockFood = function (dt) {
+    var P = this.params, srcs = [this.obstacles, this.landmarks], m = P.obsMargin * 0.8;
+    for (var f = 0; f < this.foodN; f++) {
+      var x = this.foodX[f], y = this.foodY[f], z = this.foodZ[f], inside = false;
+      for (var s0 = 0; s0 < 2 && !inside; s0++) for (var k = 0; k < srcs[s0].length; k++) {
+        var q = srcs[s0][k];
+        if (!q.enabled) continue;
+        var dx = x - q.x, dz = z - q.z, R = q.radius + m, d2;
+        if (q.kind === 'pillar') { var cy = y < q.y0 ? q.y0 : y > q.y1 ? q.y1 : y, dy = y - cy; d2 = dx * dx + dy * dy + dz * dz; }
+        else { var dy2 = y - q.y; d2 = dx * dx + dy2 * dy2 + dz * dz; }
+        if (d2 < R * R) { inside = true; break; }
+      }
+      this.foodBlk[f] = inside ? this.foodBlk[f] + dt : 0;
+    }
+  };
+  FlockEngine.prototype.foodIgnored = function (f) { return this.foodBlk[f] > this.params.foodGiveUp; };
   FlockEngine.prototype._removeFood = function (f) {
     var l = --this.foodN;
     this.foodX[f] = this.foodX[l]; this.foodY[f] = this.foodY[l]; this.foodZ[f] = this.foodZ[l];
     this.foodVX[f] = this.foodVX[l]; this.foodVY[f] = this.foodVY[l]; this.foodVZ[f] = this.foodVZ[l];
-    this.foodAge[f] = this.foodAge[l]; this.foodPh[f] = this.foodPh[l]; this.foodEaten[f] = this.foodEaten[l];
+    this.foodAge[f] = this.foodAge[l]; this.foodPh[f] = this.foodPh[l]; this.foodEaten[f] = this.foodEaten[l]; this.foodBlk[f] = this.foodBlk[l];
   };
   FlockEngine.prototype.removeObstacle = function (id) {
     this.obstacles = this.obstacles.filter(function (o) { return o.id !== id; });
@@ -564,9 +585,10 @@
     n = this.n;
     this._updateFood(dt);
     var feed = this.feed, nfeed = this.nfeed, foodN = this.foodN, foodX = this.foodX, foodY = this.foodY, foodZ = this.foodZ, foodEaten = this.foodEaten;
+    var foodBlk = this.foodBlk, giveUp = P.foodGiveUp, foodLive = 0;   // v0.13 諦めた粒は狙わない・集まる先にも数えない
     var fcx = 0, fcy = 0, fcz = 0;
-    for (var f0 = 0; f0 < foodN; f0++) { fcx += foodX[f0]; fcy += foodY[f0]; fcz += foodZ[f0]; }
-    if (foodN) { fcx /= foodN; fcy /= foodN; fcz /= foodN; }
+    for (var f0 = 0; f0 < foodN; f0++) { if (foodBlk[f0] > giveUp) continue; fcx += foodX[f0]; fcy += foodY[f0]; fcz += foodZ[f0]; foodLive++; }
+    if (foodLive) { fcx /= foodLive; fcy /= foodLive; fcz /= foodLive; }
     this.ppx.set(px.subarray(0, n)); this.ppy.set(py.subarray(0, n)); this.ppz.set(pz.subarray(0, n));
     // 3. 空間ハッシュ
     if (grid.cell !== P.rCoh) grid.setCell(P.rCoh);
@@ -873,10 +895,10 @@
 
       // 6e. 餌：近くの餌粒へ向かう。興奮（feed）は近傍へ伝わり、遠くの仲間も餌の方へ集まる
       var Fx = 0, Fy = 0, Fz = 0, fe = feed[i], feT = nbFeed * 0.8;
-      if (foodN > 0) {
+      if (foodLive > 0) {
         var bestF = P.foodRange * P.foodRange, bj = -1;
         for (var f = 0; f < foodN; f++) {
-          if (foodEaten[f]) continue;
+          if (foodEaten[f] || foodBlk[f] > giveUp) continue;
           var qx = foodX[f] - x, qy = foodY[f] - y, qz = foodZ[f] - z, q2 = qx * qx + qy * qy + qz * qz;
           if (q2 < bestF) { bestF = q2; bj = f; }
         }

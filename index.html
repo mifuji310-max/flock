@@ -8,10 +8,11 @@
 <title>FLOCK</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!--
-  FLOCK 群れシミュレータ  プロトタイプ v0.23「TOUCH & AVOID」
-  準拠：FLOCK 群れシミュレータ 開発設計書 v0.9（2026-11-02）
+  FLOCK 群れシミュレータ  プロトタイプ v0.24「TOUCH & AVOID」
+  準拠：FLOCK 群れシミュレータ 開発設計書 v0.10（2026-11-04）
 
   更新履歴
+  v0.24 2026-11-04  イワシ：浮き玉や柱の中に入った餌は、魚がしばらく回って狙ったあと、3.5秒ほどで諦めて群れに戻る（エンジン v0.13）。
   v0.23 2026-11-03  イワシ：触れたときの当たり判定を見直し。群れの中心の奥行きに固定していたのをやめ、指の下に見えている魚の奥行きに合わせる（寄って見ていても反応する）。範囲は画面の上で同じ大きさに見えるようにした。
   v0.22 2026-11-02  ムクドリ：並木の奥を見通しよく。駅舎を13 mから7.5 mに低くし、遠くの低いビルを半分ほど間引いた（木が夕焼けの空を背に見える）。
   v0.21 2026-11-02  ムクドリ：タップできる場所と、呼び寄せ（設計書 v0.9 §16.15）。
@@ -593,6 +594,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     <details class="hist">
       <summary>更新履歴</summary>
       <p class="ver">
+      v0.24（2026-11-04）イワシ：障害物の中の餌は、少し回ってから諦める<br>
       v0.23（2026-11-03）イワシ：寄って見ていても、触れた魚がちゃんと逃げるように<br>
       v0.22（2026-11-02）ムクドリ：並木の奥の駅舎を低く、低いビルを間引いて木を見やすく<br>
       v0.21（2026-11-02）ムクドリ：電線をなめらかに・押した電線や木が光る・空の長押しで呼び寄せ<br>
@@ -620,14 +622,15 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     </details>
     <div class="btn-row"><button class="chip" id="btnDevHide">裏モードを閉じる</button></div>
   </section>
-  <p class="ver" id="ver"><b>FLOCK v0.23</b> TOUCH &amp; AVOID<br>
+  <p class="ver" id="ver"><b>FLOCK v0.24</b> TOUCH &amp; AVOID<br>
   個体は人工モデルで、実際の魚や鳥の生態を厳密に再現したものではありません。</p>
 </section>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 /* =====================================================================
- * FLOCK simulation engine  v0.12
+ * FLOCK simulation engine  v0.13
+ *   v0.13 2026-11-04 障害物の中（すぐそば）に入った餌粒は、魚が数秒狙ったあと諦める（届かない粒のまわりを回り続けない）
  *   v0.12 2026-11-02 呼び寄せ：長押しした場所の上空へ群れが集まって回る（指を離すと自由に戻る）
  *   v0.11 2026-11-02 ねぐら入り：街路樹の上空を回り、降りる決断が広がって、渦を巻きながら木の中へ入る（見えなくなる）
  *   v0.10 2026-11-01 止まり木の降り方を改訂：上空を回る → 降りる決断が仲間へ広がる → 着いた所の空きに止まる（席を先に決めない）
@@ -652,7 +655,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 (function (root) {
   'use strict';
 
-  var ENGINE_VERSION = '0.12';
+  var ENGINE_VERSION = '0.13';
 
   function mulberry32(seed) {
     var a = seed >>> 0;
@@ -697,6 +700,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     speedMatch: 0.30,                    // 近傍速度への同調
     obsMargin: 0.38, lookAhead: 1.15,    // 拡張半径の余裕 / 予測時間 (s)
     wFood: 3.2, foodRange: 9, eatDist: 0.2, biteProb: 0.25, sinkSpeed: 0.2, feedDecay: 0.32,   // 餌やり（biteProb：届いても毎回は食べられない）
+    foodGiveUp: 3.5,   // v0.13 障害物の中の餌粒を、魚が諦めるまでの時間 (s)
     foodMinH: 1.0, floorGuard: 0.8,   // v0.6: 餌をまく最低の高さ（海底から）、魚が海底を避け始める高さ
     obsMaxSpeed: 8.0, obsRadiusRate: 2.5,
     bounds: [16, 8, 14]                  // ソフト境界（楕円体の半径）
@@ -790,7 +794,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     var FC = this.FOOD_CAP = 260;
     this.foodX = new Float32Array(FC); this.foodY = new Float32Array(FC); this.foodZ = new Float32Array(FC);
     this.foodVX = new Float32Array(FC); this.foodVY = new Float32Array(FC); this.foodVZ = new Float32Array(FC);
-    this.foodAge = new Float32Array(FC); this.foodPh = new Float32Array(FC); this.foodEaten = new Uint8Array(FC);
+    this.foodAge = new Float32Array(FC); this.foodPh = new Float32Array(FC); this.foodEaten = new Uint8Array(FC); this.foodBlk = new Float32Array(FC);
     this.foodN = 0; this.eaten = 0;
     this.resp = new Float32Array(C);     // responseBias
     this.speedBias = new Float32Array(C);
@@ -1085,7 +1089,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       var p = this._randInBall(spread), f = this.foodN++;
       this.foodX[f] = x + p[0]; this.foodY[f] = y + p[1] * 0.6; this.foodZ[f] = z + p[2];
       this.foodVX[f] = p[0] * 1.2; this.foodVY[f] = 0.15 + r() * 0.2; this.foodVZ[f] = p[2] * 1.2;   // ぱっと広がってから沈む
-      this.foodAge[f] = 0; this.foodPh[f] = r() * 6.283; this.foodEaten[f] = 0;
+      this.foodAge[f] = 0; this.foodPh[f] = r() * 6.283; this.foodEaten[f] = 0; this.foodBlk[f] = 0;
     }
   };
   FlockEngine.prototype._updateFood = function (dt) {
@@ -1101,12 +1105,31 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
       this.foodZ[f] += (this.foodVZ[f] + Math.cos(t * 1.1 + w * 1.7) * 0.06) * dt;
       if (this.foodY[f] < floor) this.foodY[f] = floor;
     }
+    this._blockFood(dt);
   };
+  /* v0.13 障害物の中（魚がよける範囲の内側）にある餌粒は、届かない。そこにいる時間を数え、
+   * foodGiveUp 秒を過ぎたら魚は狙わない（外へ出たら数え直し） */
+  FlockEngine.prototype._blockFood = function (dt) {
+    var P = this.params, srcs = [this.obstacles, this.landmarks], m = P.obsMargin * 0.8;
+    for (var f = 0; f < this.foodN; f++) {
+      var x = this.foodX[f], y = this.foodY[f], z = this.foodZ[f], inside = false;
+      for (var s0 = 0; s0 < 2 && !inside; s0++) for (var k = 0; k < srcs[s0].length; k++) {
+        var q = srcs[s0][k];
+        if (!q.enabled) continue;
+        var dx = x - q.x, dz = z - q.z, R = q.radius + m, d2;
+        if (q.kind === 'pillar') { var cy = y < q.y0 ? q.y0 : y > q.y1 ? q.y1 : y, dy = y - cy; d2 = dx * dx + dy * dy + dz * dz; }
+        else { var dy2 = y - q.y; d2 = dx * dx + dy2 * dy2 + dz * dz; }
+        if (d2 < R * R) { inside = true; break; }
+      }
+      this.foodBlk[f] = inside ? this.foodBlk[f] + dt : 0;
+    }
+  };
+  FlockEngine.prototype.foodIgnored = function (f) { return this.foodBlk[f] > this.params.foodGiveUp; };
   FlockEngine.prototype._removeFood = function (f) {
     var l = --this.foodN;
     this.foodX[f] = this.foodX[l]; this.foodY[f] = this.foodY[l]; this.foodZ[f] = this.foodZ[l];
     this.foodVX[f] = this.foodVX[l]; this.foodVY[f] = this.foodVY[l]; this.foodVZ[f] = this.foodVZ[l];
-    this.foodAge[f] = this.foodAge[l]; this.foodPh[f] = this.foodPh[l]; this.foodEaten[f] = this.foodEaten[l];
+    this.foodAge[f] = this.foodAge[l]; this.foodPh[f] = this.foodPh[l]; this.foodEaten[f] = this.foodEaten[l]; this.foodBlk[f] = this.foodBlk[l];
   };
   FlockEngine.prototype.removeObstacle = function (id) {
     this.obstacles = this.obstacles.filter(function (o) { return o.id !== id; });
@@ -1192,9 +1215,10 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
     n = this.n;
     this._updateFood(dt);
     var feed = this.feed, nfeed = this.nfeed, foodN = this.foodN, foodX = this.foodX, foodY = this.foodY, foodZ = this.foodZ, foodEaten = this.foodEaten;
+    var foodBlk = this.foodBlk, giveUp = P.foodGiveUp, foodLive = 0;   // v0.13 諦めた粒は狙わない・集まる先にも数えない
     var fcx = 0, fcy = 0, fcz = 0;
-    for (var f0 = 0; f0 < foodN; f0++) { fcx += foodX[f0]; fcy += foodY[f0]; fcz += foodZ[f0]; }
-    if (foodN) { fcx /= foodN; fcy /= foodN; fcz /= foodN; }
+    for (var f0 = 0; f0 < foodN; f0++) { if (foodBlk[f0] > giveUp) continue; fcx += foodX[f0]; fcy += foodY[f0]; fcz += foodZ[f0]; foodLive++; }
+    if (foodLive) { fcx /= foodLive; fcy /= foodLive; fcz /= foodLive; }
     this.ppx.set(px.subarray(0, n)); this.ppy.set(py.subarray(0, n)); this.ppz.set(pz.subarray(0, n));
     // 3. 空間ハッシュ
     if (grid.cell !== P.rCoh) grid.setCell(P.rCoh);
@@ -1501,10 +1525,10 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 
       // 6e. 餌：近くの餌粒へ向かう。興奮（feed）は近傍へ伝わり、遠くの仲間も餌の方へ集まる
       var Fx = 0, Fy = 0, Fz = 0, fe = feed[i], feT = nbFeed * 0.8;
-      if (foodN > 0) {
+      if (foodLive > 0) {
         var bestF = P.foodRange * P.foodRange, bj = -1;
         for (var f = 0; f < foodN; f++) {
-          if (foodEaten[f]) continue;
+          if (foodEaten[f] || foodBlk[f] > giveUp) continue;
           var qx = foodX[f] - x, qy = foodY[f] - y, qz = foodZ[f] - z, q2 = qx * qx + qy * qy + qz * qz;
           if (q2 < bestF) { bestF = q2; bj = f; }
         }
@@ -1759,7 +1783,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 </script>
 <script>
 /* =====================================================================
- * FLOCK starling view v0.23（設計書 v0.9 §16）
+ * FLOCK starling view v0.24（設計書 v0.9 §16）
  *   v0.22: 駅舎を低くし、遠くの低いビルを間引いた（並木が空を背に見える）
  *   v0.21: 電線をなめらかな帯で描く（カクカクしない）。タップできる電線・木を押している間だけ光らせる。最初に一度きらめく
  *   v0.20: 時間の流れ（空が暮れて夜になる・星・かすみと街の暗さ）。ねぐらの木に入った鳥は描かない
@@ -2375,7 +2399,7 @@ input[type="range"] { width: 100%; accent-color: var(--aqua); min-width: 0; }
 </script>
 <script>
 /* =====================================================================
- * FLOCK app v0.23（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
+ * FLOCK app v0.24（履歴は shell.html 冒頭） — 描画・入力・カメラ・UI（Three.js r128）
  *   v0.21: 押している電線・木を光らせる／最初のきらめき／空の長押しで呼び寄せ
  *   v0.20: ムクドリの時間の流れ（成長モードのとき：日没 → 灯り → ねぐら入り → 夕方からやり直し）
  *   v0.15: ムクドリモード（設計書 v0.5 §16）。描画は starling.js、ここでは切り替え・カメラ・ハヤブサの操作

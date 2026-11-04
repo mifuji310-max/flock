@@ -118,6 +118,21 @@ for (const kind of ['buoy', 'pillar']) {
   check('餌 上限を超えてまけない', e.foodN === e.FOOD_CAP, `foodN=${e.foodN}`);
 }
 
+// S15 障害物の中の餌（エンジン v0.13）：少しのあいだ狙って回るが、数秒で諦めて群れに戻る
+{
+  const e = new FlockEngine({ seed: 8, growth: false }), floor = -e.params.bounds[1];
+  run(e, 15); const c = e.centroid.slice();
+  e.addObstacle({ kind: 'pillar', x: c[0], z: c[2], radius: 1.4, height: c[1] - floor + 4 });
+  run(e, 3);
+  e.addFood(c[0], c[1], c[2], 20, 0.3);   // 柱の真ん中にまく（届かない）
+  const fe = () => { let s = 0; for (let i = 0; i < e.n; i++) s += e.feed[i]; return s / e.n; };
+  run(e, 2); const fe2 = fe();
+  run(e, 10); const fe12 = fe(), left = e.foodN;
+  check('S15 障害物の中の餌 はじめは狙って興奮する', fe2 > 0.3, `2秒後の興奮=${fe2.toFixed(2)}`);
+  check('S15 障害物の中の餌 数秒で諦めて落ち着く', fe12 < 0.15 && left > 0, `12秒後の興奮=${fe12.toFixed(2)} 残りの粒=${left}`);
+  check('S15 障害物の中の餌 食べられない（中に入らない）', e.eaten === 0, `食べた=${e.eaten}`);
+}
+
 // 餌と海底（v0.13）：海底より下の点にまいても海底の上に置かれ、魚も海底より下へ潜らない
 {
   const e = new FlockEngine({ seed: 7, growth: false }), floor = -e.params.bounds[1];
